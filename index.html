@@ -1,12 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🐍 JUDY Snake Adventure 🐍</title>
   <style>
     body {
-      background-color: #0a0a0a;
+      background: #0a0a0a;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -16,30 +16,27 @@
       font-family: "Press Start 2P", monospace;
       text-align: center;
     }
-
     canvas {
       border: 3px solid #44ff66;
       background: #111;
       image-rendering: pixelated;
+      display: none;
     }
-
     h1 {
       color: #00ff88;
       text-shadow: 2px 2px #003300;
       margin-bottom: 10px;
       font-size: 14px;
     }
-
     .scoreboard {
+      display: none;
       color: #ff88aa;
       font-size: 12px;
       margin-bottom: 10px;
     }
-
-    .controls {
-      margin-top: 10px;
+    .controls, .menu {
+      margin-top: 15px;
     }
-
     button {
       background: #222;
       color: #00ffcc;
@@ -51,12 +48,10 @@
       font-family: "Press Start 2P", monospace;
       cursor: pointer;
     }
-
     button:hover {
       background: #00ffcc;
       color: #111;
     }
-
     footer {
       margin-top: 10px;
       color: #777;
@@ -66,10 +61,21 @@
 </head>
 <body>
   <h1>🐍 JUDY ANN FAITH CASTILLO 🐍</h1>
-  <div class="scoreboard">LEVEL: <span id="level">1</span> | SCORE: <span id="score">0</span></div>
+
+  <!-- Stage Selection Menu -->
+  <div class="menu" id="menu">
+    <p>Select Stage:</p>
+    <div id="stageButtons"></div>
+    <br>
+    <button onclick="continueLast()">▶️ Continue Last Stage</button>
+    <button onclick="resetProgress()">🗑️ Reset Progress</button>
+  </div>
+
+  <!-- Scoreboard + Game -->
+  <div class="scoreboard" id="scoreboard">STAGE: <span id="stage">1</span> | SCORE: <span id="score">0</span></div>
   <canvas id="gameCanvas" width="320" height="320"></canvas>
 
-  <div class="controls">
+  <div class="controls" id="controls" style="display:none;">
     <button onclick="changeDirection('UP')">⬆️</button><br>
     <button onclick="changeDirection('LEFT')">⬅️</button>
     <button onclick="togglePause()">⏯️</button>
@@ -82,205 +88,242 @@
   <script>
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
+    const scoreboard = document.getElementById("scoreboard");
+    const stageButtonsDiv = document.getElementById("stageButtons");
+
     const box = 16;
-
-    let snake = [{ x: 9 * box, y: 10 * box }];
-    let direction = "RIGHT";
-    let score = 0;
-    let level = 1;
-    let speed = 200;
-    let paused = false;
-
-    let food = {
-      x: Math.floor(Math.random() * 19 + 1) * box,
-      y: Math.floor(Math.random() * 19 + 1) * box
-    };
-
-    // Boss snake
+    let snake, direction, food, score, stage, speed, paused;
     let bossSnake = null;
     let bossDirection = "LEFT";
+    let game;
 
-    const eatSound = new Audio("https://actions.google.com/sounds/v1/cartoon/pop.ogg");
-    const gameOverSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
-    const levelUpSound = new Audio("https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg");
+    // Load saved progress (default 1 if no save found)
+    let unlockedStages = parseInt(localStorage.getItem("snakeUnlockedStages")) || 1;
 
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
-      else if (e.key === "ArrowUp" && direction !== "DOWN") direction = "UP";
-      else if (e.key === "ArrowRight" && direction !== "LEFT") direction = "RIGHT";
-      else if (e.key === "ArrowDown" && direction !== "UP") direction = "DOWN";
-      else if (e.key === "p" || e.key === "P") togglePause();
-    });
-
-    function changeDirection(dir) {
-      if (dir === "LEFT" && direction !== "RIGHT") direction = "LEFT";
-      if (dir === "UP" && direction !== "DOWN") direction = "UP";
-      if (dir === "RIGHT" && direction !== "LEFT") direction = "RIGHT";
-      if (dir === "DOWN" && direction !== "UP") direction = "DOWN";
-    }
-
-    function togglePause() {
-      paused = !paused;
-    }
-
-    function collision(newHead, snakeArray) {
-      for (let i = 0; i < snakeArray.length; i++) {
-        if (newHead.x === snakeArray[i].x && newHead.y === snakeArray[i].y) {
-          return true;
-        }
-      }
-      return false;
+    // 🎵 Friendly sound
+    function playTone(freq, duration = 0.2, type = "sine", volume = 0.08) {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.value = volume;
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
     }
 
     function drawBackground() {
       for (let y = 0; y < 20; y++) {
         for (let x = 0; x < 20; x++) {
-          if ((x + y) % 2 === 0) {
-            ctx.fillStyle = "#0f3d0f"; // dark green
-          } else {
-            ctx.fillStyle = "#145214"; // light green
-          }
+          ctx.fillStyle = (x + y) % 2 === 0 ? "#0f3d0f" : "#145214";
           ctx.fillRect(x * box, y * box, box, box);
         }
       }
     }
 
+    function randomFood() {
+      return {
+        x: Math.floor(Math.random() * 19 + 1) * box,
+        y: Math.floor(Math.random() * 19 + 1) * box
+      };
+    }
+
+    function collision(newHead, arr) {
+      return arr.some(seg => seg.x === newHead.x && seg.y === newHead.y);
+    }
+
     function moveBoss() {
       if (!bossSnake) return;
-
       let headX = bossSnake[0].x;
       let headY = bossSnake[0].y;
-
       if (bossDirection === "LEFT") headX -= box;
       if (bossDirection === "UP") headY -= box;
       if (bossDirection === "RIGHT") headX += box;
       if (bossDirection === "DOWN") headY += box;
-
-      // Randomly change direction
       if (Math.random() < 0.1) {
-        const dirs = ["LEFT", "RIGHT", "UP", "DOWN"];
-        bossDirection = dirs[Math.floor(Math.random() * dirs.length)];
+        const dirs = ["LEFT","RIGHT","UP","DOWN"];
+        bossDirection = dirs[Math.floor(Math.random()*dirs.length)];
       }
-
-      // wrap around
       if (headX < 0) headX = 304;
       if (headX >= 320) headX = 0;
       if (headY < 0) headY = 304;
       if (headY >= 320) headY = 0;
-
       bossSnake.pop();
       bossSnake.unshift({ x: headX, y: headY });
+    }
+
+    function drawSnakePart(x, y, head=false) {
+      ctx.fillStyle = head ? "#33ff77" : "#55ff99";
+      ctx.fillRect(x, y, box, box);
+      if (head) {
+        ctx.fillStyle = "#000";
+        ctx.fillRect(x+4, y+4, 3,3);
+        ctx.fillRect(x+9, y+4, 3,3);
+      }
     }
 
     function draw() {
       if (paused) {
         ctx.fillStyle = "#111";
-        ctx.fillRect(0, 0, 320, 320);
+        ctx.fillRect(0,0,320,320);
         ctx.fillStyle = "#ffcc00";
         ctx.font = "12px 'Press Start 2P'";
-        ctx.fillText("PAUSED", 100, 160);
+        ctx.fillText("PAUSED",100,160);
         return;
       }
 
       drawBackground();
 
-      // draw food
-      ctx.fillStyle = (level === 6 ? "#ffff00" : "#ff4444");
+      // Food
+      ctx.fillStyle = stage === 6 ? "#ffff00" : "#ff4444";
       ctx.fillRect(food.x, food.y, box, box);
 
-      // draw player snake
-      for (let i = 0; i < snake.length; i++) {
-        if (i === 0) {
-          ctx.fillStyle = "#33ff77"; // head
-          ctx.fillRect(snake[i].x, snake[i].y, box, box);
-          ctx.fillStyle = "#000";
-          ctx.fillRect(snake[i].x + 4, snake[i].y + 4, 3, 3);
-          ctx.fillRect(snake[i].x + 9, snake[i].y + 4, 3, 3);
-        } else {
-          ctx.fillStyle = "#55ff99";
-          ctx.fillRect(snake[i].x, snake[i].y, box, box);
-        }
+      // Snake
+      for (let i=0; i<snake.length; i++) {
+        drawSnakePart(snake[i].x, snake[i].y, i===0);
       }
 
-      // draw boss snake
-      if (level === 6 && bossSnake) {
-        for (let i = 0; i < bossSnake.length; i++) {
-          if (i === 0) {
-            ctx.fillStyle = "#ff00ff"; // head
-          } else {
-            ctx.fillStyle = "#cc00cc"; // body
-          }
+      // Boss Snake
+      if (stage === 6 && bossSnake) {
+        for (let i=0; i<bossSnake.length; i++) {
+          ctx.fillStyle = i===0 ? "#ff00ff" : "#cc00cc";
           ctx.fillRect(bossSnake[i].x, bossSnake[i].y, box, box);
         }
-
         moveBoss();
-
-        // collision with player
         for (let part of bossSnake) {
           if (snake[0].x === part.x && snake[0].y === part.y) {
             clearInterval(game);
-            gameOverSound.play();
-            alert("💀 JUDY was eaten by the Final Boss Snake! Score: " + score);
+            playTone(180,0.5,"sine",0.07);
+            alert("💀 JUDY was eaten by the Final Boss!");
+            returnToMenu();
           }
         }
       }
 
-      // move player
+      // Snake move
       let snakeX = snake[0].x;
       let snakeY = snake[0].y;
-
-      if (direction === "LEFT") snakeX -= box;
-      if (direction === "UP") snakeY -= box;
-      if (direction === "RIGHT") snakeX += box;
-      if (direction === "DOWN") snakeY += box;
+      if (direction==="LEFT") snakeX -= box;
+      if (direction==="UP") snakeY -= box;
+      if (direction==="RIGHT") snakeX += box;
+      if (direction==="DOWN") snakeY += box;
 
       if (snakeX === food.x && snakeY === food.y) {
         score++;
-        eatSound.play();
+        playTone(660,0.15,"sine",0.05);
         document.getElementById("score").innerText = score;
+        food = randomFood();
 
-        if (score % 5 === 0 && level < 6) {
-          level++;
-          speed = Math.max(60, speed - 30);
-          levelUpSound.play();
-          document.getElementById("level").innerText = level;
-
-          if (level === 6) {
-            bossSnake = [
-              { x: 5 * box, y: 5 * box },
-              { x: 6 * box, y: 5 * box },
-              { x: 7 * box, y: 5 * box },
-              { x: 8 * box, y: 5 * box }
-            ];
-          }
-
+        // Win condition = 10 points per stage
+        if (score >= 10) {
           clearInterval(game);
-          game = setInterval(draw, speed);
+          playTone(880,0.3,"triangle",0.06);
+          alert(`🎉 Stage ${stage} cleared!`);
+          if (stage < 6) {
+            unlockedStages = Math.max(unlockedStages, stage+1);
+            localStorage.setItem("snakeUnlockedStages", unlockedStages); // 🔒 Save progress
+          }
+          returnToMenu();
         }
 
-        food = {
-          x: Math.floor(Math.random() * 19 + 1) * box,
-          y: Math.floor(Math.random() * 19 + 1) * box
-        };
       } else {
         snake.pop();
       }
 
-      const newHead = { x: snakeX, y: snakeY };
-
-      if (
-        snakeX < 0 || snakeX >= 320 || snakeY < 0 || snakeY >= 320 ||
-        collision(newHead, snake)
-      ) {
+      let newHead = { x: snakeX, y: snakeY };
+      if (snakeX < 0 || snakeX>=320 || snakeY<0 || snakeY>=320 || collision(newHead,snake)) {
         clearInterval(game);
-        gameOverSound.play();
-        alert("💔 JUDY crashed! Final Score: " + score);
+        playTone(220,0.5,"sine",0.07);
+        alert("💔 JUDY crashed!");
+        returnToMenu();
       }
-
       snake.unshift(newHead);
     }
 
-    let game = setInterval(draw, speed);
+    function startStage(selectedStage) {
+      stage = selectedStage;
+      snake = [{ x: 9*box, y: 10*box }];
+      direction = "RIGHT";
+      score = 0;
+      paused = false;
+      speed = 200 - (stage-1)*25;
+      if (stage===6) {
+        bossSnake = [
+          {x:5*box,y:5*box},{x:6*box,y:5*box},
+          {x:7*box,y:5*box},{x:8*box,y:5*box}
+        ];
+      } else {
+        bossSnake = null;
+      }
+
+      document.getElementById("stage").innerText = stage;
+      document.getElementById("score").innerText = score;
+      scoreboard.style.display = "block";
+      canvas.style.display = "block";
+      document.getElementById("controls").style.display = "block";
+      document.getElementById("menu").style.display = "none";
+      food = randomFood();
+
+      clearInterval(game);
+      game = setInterval(draw, speed);
+    }
+
+    function returnToMenu() {
+      scoreboard.style.display = "none";
+      canvas.style.display = "none";
+      document.getElementById("controls").style.display = "none";
+      document.getElementById("menu").style.display = "block";
+      updateStageButtons();
+    }
+
+    function updateStageButtons() {
+      stageButtonsDiv.innerHTML = "";
+      for (let i=1; i<=6; i++) {
+        let btn = document.createElement("button");
+        btn.innerText = "Stage " + i;
+        btn.disabled = i > unlockedStages;
+        btn.onclick = ()=>startStage(i);
+        stageButtonsDiv.appendChild(btn);
+      }
+    }
+
+    function continueLast() {
+      if (unlockedStages >= 1) {
+        startStage(unlockedStages);
+      } else {
+        alert("No saved progress yet! Start from Stage 1.");
+      }
+    }
+
+    function resetProgress() {
+      if (confirm("Are you sure you want to reset progress?")) {
+        unlockedStages = 1;
+        localStorage.setItem("snakeUnlockedStages", unlockedStages);
+        updateStageButtons();
+        alert("Progress reset! Back to Stage 1.");
+      }
+    }
+
+    document.addEventListener("keydown",(e)=>{
+      if(e.key==="ArrowLeft"&&direction!=="RIGHT")direction="LEFT";
+      else if(e.key==="ArrowUp"&&direction!=="DOWN")direction="UP";
+      else if(e.key==="ArrowRight"&&direction!=="LEFT")direction="RIGHT";
+      else if(e.key==="ArrowDown"&&direction!=="UP")direction="DOWN";
+      else if(e.key==="p"||e.key==="P")togglePause();
+    });
+
+    function changeDirection(dir){ 
+      if(dir==="LEFT"&&direction!=="RIGHT")direction="LEFT";
+      else if(dir==="UP"&&direction!=="DOWN")direction="UP";
+      else if(dir==="RIGHT"&&direction!=="LEFT")direction="RIGHT";
+      else if(dir==="DOWN"&&direction!=="UP")direction="DOWN";
+    }
+    function togglePause(){ paused=!paused; }
+
+    // Init
+    updateStageButtons();
   </script>
 </body>
 </html>
