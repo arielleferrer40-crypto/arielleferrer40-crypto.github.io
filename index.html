@@ -3,110 +3,79 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>🐍 JUDY ANN FAITH CASTILLO 🐍</title>
+  <title>🐍 JUDY Snake Adventure 🐍</title>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
-
     body {
-      background: #0a0a0a;
+      background-color: #0a0a0a;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
       height: 100vh;
-      color: #fff;
-      font-family: 'Press Start 2P', monospace;
+      color: white;
+      font-family: "Press Start 2P", monospace;
       text-align: center;
-      overflow: hidden;
     }
 
     canvas {
-      border: 4px solid #33ff77;
+      border: 3px solid #44ff66;
       background: #111;
       image-rendering: pixelated;
-      width: 90vw;
-      max-width: 320px;
-      height: auto;
     }
 
     h1 {
-      font-size: 12px;
       color: #00ff88;
       text-shadow: 2px 2px #003300;
       margin-bottom: 10px;
+      font-size: 14px;
     }
 
     .scoreboard {
-      color: #ff99cc;
-      font-size: 10px;
+      color: #ff88aa;
+      font-size: 12px;
       margin-bottom: 10px;
     }
 
     .controls {
-      display: grid;
-      grid-template-columns: repeat(3, 60px);
-      gap: 10px;
-      justify-content: center;
-      margin-top: 15px;
-    }
-
-    .btn {
-      width: 60px;
-      height: 60px;
-      font-size: 24px;
-      background: #222;
-      color: #00ff88;
-      border: 2px solid #00ff88;
-      border-radius: 10px;
-      cursor: pointer;
-      touch-action: manipulation;
-    }
-
-    .btn:active {
-      background: #00ff88;
-      color: #111;
-    }
-
-    #muteBtn {
       margin-top: 10px;
-      background: #222;
-      border: 2px solid #ff66cc;
-      color: #ff66cc;
-      padding: 5px 10px;
-      font-size: 10px;
-      cursor: pointer;
-      border-radius: 6px;
     }
 
-    #muteBtn.active {
-      background: #ff66cc;
+    button {
+      background: #222;
+      color: #00ffcc;
+      border: 2px solid #00ffcc;
+      font-size: 12px;
+      margin: 5px;
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-family: "Press Start 2P", monospace;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #00ffcc;
       color: #111;
     }
 
     footer {
       margin-top: 10px;
       color: #777;
-      font-size: 9px;
+      font-size: 10px;
     }
   </style>
 </head>
 <body>
   <h1>🐍 JUDY ANN FAITH CASTILLO 🐍</h1>
-  <div class="scoreboard">SCORE: <span id="score">0</span></div>
+  <div class="scoreboard">LEVEL: <span id="level">1</span> | SCORE: <span id="score">0</span></div>
   <canvas id="gameCanvas" width="320" height="320"></canvas>
 
-  <!-- Mobile Controls -->
   <div class="controls">
-    <div></div>
-    <button class="btn" id="up">⬆️</button>
-    <div></div>
-    <button class="btn" id="left">⬅️</button>
-    <button class="btn" id="down">⬇️</button>
-    <button class="btn" id="right">➡️</button>
+    <button onclick="changeDirection('UP')">⬆️</button><br>
+    <button onclick="changeDirection('LEFT')">⬅️</button>
+    <button onclick="togglePause()">⏯️</button>
+    <button onclick="changeDirection('RIGHT')">➡️</button><br>
+    <button onclick="changeDirection('DOWN')">⬇️</button>
   </div>
-
-  <!-- Mute button -->
-  <button id="muteBtn">🔊 MUSIC</button>
 
   <footer>Made with ❤️ by Arielle & JUDY</footer>
 
@@ -114,177 +83,204 @@
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const box = 16;
+
     let snake = [{ x: 9 * box, y: 10 * box }];
     let direction = "RIGHT";
     let score = 0;
+    let level = 1;
+    let speed = 200;
+    let paused = false;
 
-    let food = randomFood();
+    let food = {
+      x: Math.floor(Math.random() * 19 + 1) * box,
+      y: Math.floor(Math.random() * 19 + 1) * box
+    };
 
-    // 🎵 Web Audio context
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioContext();
+    // Boss snake
+    let bossSnake = null;
+    let bossDirection = "LEFT";
 
-    // 🎼 Simple melody (notes in Hz)
-    const melody = [262, 294, 330, 349, 392, 440, 494, 523]; // C D E F G A B C
-    let musicPlaying = false;
-    let musicInterval;
+    const eatSound = new Audio("https://actions.google.com/sounds/v1/cartoon/pop.ogg");
+    const gameOverSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
+    const levelUpSound = new Audio("https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg");
 
-    function playNote(freq, duration = 0.3) {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "square";
-      osc.frequency.value = freq;
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-      osc.stop(audioCtx.currentTime + duration);
-    }
-
-    function startMusic() {
-      if (musicPlaying) return;
-      musicPlaying = true;
-      let i = 0;
-      musicInterval = setInterval(() => {
-        playNote(melody[i % melody.length]);
-        i++;
-      }, 400);
-    }
-
-    function stopMusic() {
-      musicPlaying = false;
-      clearInterval(musicInterval);
-    }
-
-    // 🎮 Sound effects
-    function playSound(freq, duration = 0.1, type = "square") {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-      osc.stop(audioCtx.currentTime + duration);
-    }
-
-    function randomFood() {
-      return {
-        x: Math.floor(Math.random() * 19 + 1) * box,
-        y: Math.floor(Math.random() * 19 + 1) * box
-      };
-    }
-
-    // 🎵 Mute button
-    const muteBtn = document.getElementById("muteBtn");
-    muteBtn.addEventListener("click", () => {
-      if (musicPlaying) {
-        stopMusic();
-        muteBtn.classList.remove("active");
-        muteBtn.innerText = "🔇 MUSIC OFF";
-      } else {
-        startMusic();
-        muteBtn.classList.add("active");
-        muteBtn.innerText = "🔊 MUSIC ON";
-      }
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
+      else if (e.key === "ArrowUp" && direction !== "DOWN") direction = "UP";
+      else if (e.key === "ArrowRight" && direction !== "LEFT") direction = "RIGHT";
+      else if (e.key === "ArrowDown" && direction !== "UP") direction = "DOWN";
+      else if (e.key === "p" || e.key === "P") togglePause();
     });
 
-    document.addEventListener("keydown", keyDirection);
-    document.getElementById("up").onclick = () => setDirection("UP");
-    document.getElementById("down").onclick = () => setDirection("DOWN");
-    document.getElementById("left").onclick = () => setDirection("LEFT");
-    document.getElementById("right").onclick = () => setDirection("RIGHT");
-
-    function keyDirection(e) {
-      const key = e.key;
-      if (key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
-      else if (key === "ArrowUp" && direction !== "DOWN") direction = "UP";
-      else if (key === "ArrowRight" && direction !== "LEFT") direction = "RIGHT";
-      else if (key === "ArrowDown" && direction !== "UP") direction = "DOWN";
-    }
-
-    function setDirection(dir) {
+    function changeDirection(dir) {
       if (dir === "LEFT" && direction !== "RIGHT") direction = "LEFT";
-      else if (dir === "UP" && direction !== "DOWN") direction = "UP";
-      else if (dir === "RIGHT" && direction !== "LEFT") direction = "RIGHT";
-      else if (dir === "DOWN" && direction !== "UP") direction = "DOWN";
+      if (dir === "UP" && direction !== "DOWN") direction = "UP";
+      if (dir === "RIGHT" && direction !== "LEFT") direction = "RIGHT";
+      if (dir === "DOWN" && direction !== "UP") direction = "DOWN";
     }
 
-    function drawPixelSnake(x, y, head = false) {
-      ctx.fillStyle = head ? "#33ff77" : "#55ff99";
-      ctx.fillRect(x, y, box, box);
-      ctx.fillStyle = head ? "#00cc55" : "#22cc77";
-      ctx.fillRect(x, y + box - 4, box, 4);
-      if (head) {
-        ctx.fillStyle = "#000";
-        ctx.fillRect(x + 4, y + 3, 3, 3);
-        ctx.fillRect(x + 9, y + 3, 3, 3);
+    function togglePause() {
+      paused = !paused;
+    }
+
+    function collision(newHead, snakeArray) {
+      for (let i = 0; i < snakeArray.length; i++) {
+        if (newHead.x === snakeArray[i].x && newHead.y === snakeArray[i].y) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    function drawBackground() {
+      for (let y = 0; y < 20; y++) {
+        for (let x = 0; x < 20; x++) {
+          if ((x + y) % 2 === 0) {
+            ctx.fillStyle = "#0f3d0f"; // dark green
+          } else {
+            ctx.fillStyle = "#145214"; // light green
+          }
+          ctx.fillRect(x * box, y * box, box, box);
+        }
       }
     }
 
-    function collision(head, arr) {
-      return arr.some(seg => seg.x === head.x && seg.y === head.y);
+    function moveBoss() {
+      if (!bossSnake) return;
+
+      let headX = bossSnake[0].x;
+      let headY = bossSnake[0].y;
+
+      if (bossDirection === "LEFT") headX -= box;
+      if (bossDirection === "UP") headY -= box;
+      if (bossDirection === "RIGHT") headX += box;
+      if (bossDirection === "DOWN") headY += box;
+
+      // Randomly change direction
+      if (Math.random() < 0.1) {
+        const dirs = ["LEFT", "RIGHT", "UP", "DOWN"];
+        bossDirection = dirs[Math.floor(Math.random() * dirs.length)];
+      }
+
+      // wrap around
+      if (headX < 0) headX = 304;
+      if (headX >= 320) headX = 0;
+      if (headY < 0) headY = 304;
+      if (headY >= 320) headY = 0;
+
+      bossSnake.pop();
+      bossSnake.unshift({ x: headX, y: headY });
     }
 
     function draw() {
-      ctx.fillStyle = "#111";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Food
-      ctx.fillStyle = "#ff4444";
-      ctx.fillRect(food.x, food.y, box, box);
-      ctx.fillStyle = "#cc0000";
-      ctx.fillRect(food.x + 4, food.y, 8, 4);
-      ctx.fillStyle = "#33cc33";
-      ctx.fillRect(food.x + 6, food.y - 4, 4, 4);
-
-      // Snake
-      for (let i = 0; i < snake.length; i++) {
-        drawPixelSnake(snake[i].x, snake[i].y, i === 0);
+      if (paused) {
+        ctx.fillStyle = "#111";
+        ctx.fillRect(0, 0, 320, 320);
+        ctx.fillStyle = "#ffcc00";
+        ctx.font = "12px 'Press Start 2P'";
+        ctx.fillText("PAUSED", 100, 160);
+        return;
       }
 
-      // Movement
+      drawBackground();
+
+      // draw food
+      ctx.fillStyle = (level === 6 ? "#ffff00" : "#ff4444");
+      ctx.fillRect(food.x, food.y, box, box);
+
+      // draw player snake
+      for (let i = 0; i < snake.length; i++) {
+        if (i === 0) {
+          ctx.fillStyle = "#33ff77"; // head
+          ctx.fillRect(snake[i].x, snake[i].y, box, box);
+          ctx.fillStyle = "#000";
+          ctx.fillRect(snake[i].x + 4, snake[i].y + 4, 3, 3);
+          ctx.fillRect(snake[i].x + 9, snake[i].y + 4, 3, 3);
+        } else {
+          ctx.fillStyle = "#55ff99";
+          ctx.fillRect(snake[i].x, snake[i].y, box, box);
+        }
+      }
+
+      // draw boss snake
+      if (level === 6 && bossSnake) {
+        for (let i = 0; i < bossSnake.length; i++) {
+          if (i === 0) {
+            ctx.fillStyle = "#ff00ff"; // head
+          } else {
+            ctx.fillStyle = "#cc00cc"; // body
+          }
+          ctx.fillRect(bossSnake[i].x, bossSnake[i].y, box, box);
+        }
+
+        moveBoss();
+
+        // collision with player
+        for (let part of bossSnake) {
+          if (snake[0].x === part.x && snake[0].y === part.y) {
+            clearInterval(game);
+            gameOverSound.play();
+            alert("💀 JUDY was eaten by the Final Boss Snake! Score: " + score);
+          }
+        }
+      }
+
+      // move player
       let snakeX = snake[0].x;
       let snakeY = snake[0].y;
+
       if (direction === "LEFT") snakeX -= box;
       if (direction === "UP") snakeY -= box;
       if (direction === "RIGHT") snakeX += box;
       if (direction === "DOWN") snakeY += box;
 
-      // Eat food
       if (snakeX === food.x && snakeY === food.y) {
         score++;
+        eatSound.play();
         document.getElementById("score").innerText = score;
-        playSound(880, 0.15); // 🍎 chomp
-        food = randomFood();
+
+        if (score % 5 === 0 && level < 6) {
+          level++;
+          speed = Math.max(60, speed - 30);
+          levelUpSound.play();
+          document.getElementById("level").innerText = level;
+
+          if (level === 6) {
+            bossSnake = [
+              { x: 5 * box, y: 5 * box },
+              { x: 6 * box, y: 5 * box },
+              { x: 7 * box, y: 5 * box },
+              { x: 8 * box, y: 5 * box }
+            ];
+          }
+
+          clearInterval(game);
+          game = setInterval(draw, speed);
+        }
+
+        food = {
+          x: Math.floor(Math.random() * 19 + 1) * box,
+          y: Math.floor(Math.random() * 19 + 1) * box
+        };
       } else {
         snake.pop();
       }
 
-      let newHead = { x: snakeX, y: snakeY };
+      const newHead = { x: snakeX, y: snakeY };
 
-      // Game over
       if (
-        snakeX < 0 || snakeX >= canvas.width ||
-        snakeY < 0 || snakeY >= canvas.height ||
+        snakeX < 0 || snakeX >= 320 || snakeY < 0 || snakeY >= 320 ||
         collision(newHead, snake)
       ) {
-        playSound(110, 0.5, "sawtooth"); // 💥 crash
-        stopMusic();
         clearInterval(game);
-        setTimeout(() => {
-          alert("💔 JUDY crashed! Final Score: " + score);
-          location.reload();
-        }, 200);
+        gameOverSound.play();
+        alert("💔 JUDY crashed! Final Score: " + score);
       }
 
       snake.unshift(newHead);
     }
 
-    const game = setInterval(draw, 120);
+    let game = setInterval(draw, speed);
   </script>
 </body>
 </html>
