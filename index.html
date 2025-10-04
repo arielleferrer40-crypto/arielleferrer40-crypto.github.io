@@ -17,6 +17,8 @@
       display: block;
       margin: 20px auto;
       border: 4px solid lime;
+      max-width: 100%;
+      height: auto;
     }
     .menu {
       margin: 10px;
@@ -35,7 +37,27 @@
       cursor: not-allowed;
     }
 
-    /* Potato Character */
+    /* Mobile Controls */
+    #mobileControls {
+      display: none;
+      margin-top: 15px;
+    }
+    #mobileControls .row {
+      display: flex;
+      justify-content: center;
+    }
+    #mobileControls button {
+      width: 60px;
+      height: 60px;
+      font-size: 24px;
+      margin: 5px;
+      border-radius: 10px;
+      background: limegreen;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* Cute Potato Character */
     .potato-character {
       position: fixed;
       bottom: 30px;
@@ -47,12 +69,13 @@
       z-index: -1;
     }
     .potato-body {
-      width: 80px;
+      width: 90px;
       height: 120px;
-      background: #b5651d;
+      background: #deb887;
       border-radius: 50% 50% 45% 55%;
       margin: auto;
       position: relative;
+      border: 3px solid #a0522d;
     }
     .eyes {
       display: flex;
@@ -60,28 +83,39 @@
       margin-top: 30px;
     }
     .eye {
-      width: 15px;
-      height: 15px;
+      width: 18px;
+      height: 18px;
       background: white;
       border-radius: 50%;
       position: relative;
+      border: 2px solid #333;
     }
     .eye::after {
       content: "";
-      width: 7px;
-      height: 7px;
+      width: 8px;
+      height: 8px;
       background: black;
       border-radius: 50%;
       position: absolute;
-      top: 4px;
-      left: 4px;
+      top: 5px;
+      left: 5px;
     }
-    .mouth {
-      width: 30px;
-      height: 10px;
-      border-bottom: 3px solid black;
+    .cheek {
+      width: 12px;
+      height: 12px;
+      background: pink;
       border-radius: 50%;
-      margin: 10px auto 0 auto;
+      position: absolute;
+      top: 55px;
+    }
+    .cheek.left { left: 10px; }
+    .cheek.right { right: 10px; }
+    .mouth {
+      width: 35px;
+      height: 20px;
+      border-bottom: 4px solid #333;
+      border-radius: 50%;
+      margin: 8px auto 0 auto;
     }
     .arms {
       position: absolute;
@@ -89,33 +123,36 @@
       width: 100%;
     }
     .arm {
-      width: 20px;
-      height: 6px;
-      background: #b5651d;
+      width: 25px;
+      height: 8px;
+      background: #deb887;
       position: absolute;
       top: 0;
+      border-radius: 5px;
     }
-    .arm.left { left: -20px; transform-origin: right center; animation: waveLeft 2s infinite; }
-    .arm.right { right: -20px; transform-origin: left center; animation: waveRight 2s infinite; }
+    .arm.left { left: -25px; transform-origin: right center; animation: waveLeft 2s infinite; }
+    .arm.right { right: -25px; transform-origin: left center; animation: waveRight 2s infinite; }
     .legs {
       position: absolute;
-      bottom: -10px;
+      bottom: -15px;
       width: 100%;
     }
     .leg {
-      width: 8px;
-      height: 25px;
-      background: #b5651d;
+      width: 12px;
+      height: 30px;
+      background: #deb887;
       position: absolute;
       bottom: 0;
+      border-radius: 5px;
     }
-    .leg.left { left: 15px; animation: step 1s infinite alternate; }
-    .leg.right { right: 15px; animation: step 1s infinite alternate-reverse; }
+    .leg.left { left: 20px; animation: step 1s infinite alternate; }
+    .leg.right { right: 20px; animation: step 1s infinite alternate-reverse; }
+
     @keyframes dance {
       0%, 100% { transform: translateY(0) rotate(0deg); }
-      25% { transform: translateY(-10px) rotate(-5deg); }
+      25% { transform: translateY(-8px) rotate(-4deg); }
       50% { transform: translateY(0) rotate(0deg); }
-      75% { transform: translateY(-10px) rotate(5deg); }
+      75% { transform: translateY(-8px) rotate(4deg); }
     }
     @keyframes waveLeft {
       0%, 100% { transform: rotate(0deg); }
@@ -145,13 +182,27 @@
     <button onclick="togglePause()">⏸️ Pause / ▶️ Resume</button>
   </div>
 
-  <!-- Dancing Potato -->
+  <!-- Mobile Controls -->
+  <div id="mobileControls">
+    <div class="row">
+      <button onclick="setDirection('UP')">⬆️</button>
+    </div>
+    <div class="row">
+      <button onclick="setDirection('LEFT')">⬅️</button>
+      <button onclick="setDirection('DOWN')">⬇️</button>
+      <button onclick="setDirection('RIGHT')">➡️</button>
+    </div>
+  </div>
+
+  <!-- Cute Dancing Potato -->
   <div class="potato-character">
     <div class="potato-body">
       <div class="eyes">
         <div class="eye"></div>
         <div class="eye"></div>
       </div>
+      <div class="cheek left"></div>
+      <div class="cheek right"></div>
       <div class="mouth"></div>
     </div>
     <div class="arms">
@@ -171,8 +222,9 @@ const box = 20;
 let snake, food, d, score, game, stage;
 let unlockedStages = parseInt(localStorage.getItem("snakeUnlockedStages")) || 1;
 let paused = false;
+let frameCount = 0;
 
-// Sounds (softer)
+// Sounds
 const eatSound = new Audio("https://actions.google.com/sounds/v1/cartoon/pop.ogg");
 const gameOverSound = new Audio("https://actions.google.com/sounds/v1/cartoon/clang_and_wobble.ogg");
 
@@ -213,6 +265,7 @@ function startStage(selectedStage) {
   };
   d = null;
   score = 0;
+  frameCount = 0;
   if (game) clearInterval(game);
   let speed = 150 - (stage - 1) * 20;
   if (stage === 6) speed = 60;
@@ -227,6 +280,13 @@ function direction(event) {
   else if (event.keyCode === 40 && d !== "UP") d = "DOWN";
 }
 
+function setDirection(dir) {
+  if (dir === "LEFT" && d !== "RIGHT") d = "LEFT";
+  else if (dir === "UP" && d !== "DOWN") d = "UP";
+  else if (dir === "RIGHT" && d !== "LEFT") d = "RIGHT";
+  else if (dir === "DOWN" && d !== "UP") d = "DOWN";
+}
+
 function togglePause() {
   paused = !paused;
 }
@@ -238,6 +298,8 @@ function collision(head, array) {
 function draw() {
   if (paused) return;
 
+  frameCount++;
+
   ctx.fillStyle = "#111";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -248,16 +310,20 @@ function draw() {
     ctx.strokeStyle = "darkgreen";
     ctx.strokeRect(part.x, part.y, box, box);
 
-    // Snake Head with eyes + tongue
     if (index === 0) {
+      // Snake Head: eyes + flickering tongue
       ctx.fillStyle = "white";
       ctx.fillRect(part.x + 4, part.y + 4, 4, 4);
       ctx.fillRect(part.x + 12, part.y + 4, 4, 4);
       ctx.fillStyle = "black";
       ctx.fillRect(part.x + 5, part.y + 5, 2, 2);
       ctx.fillRect(part.x + 13, part.y + 5, 2, 2);
-      ctx.fillStyle = "red";
-      ctx.fillRect(part.x + 8, part.y + box - 2, 4, 4);
+
+      // Flickering tongue (shows every 15 frames)
+      if (frameCount % 30 < 15) {
+        ctx.fillStyle = "red";
+        ctx.fillRect(part.x + 8, part.y + box - 2, 4, 6);
+      }
     }
   });
 
@@ -265,16 +331,15 @@ function draw() {
   ctx.fillStyle = "red";
   ctx.fillRect(food.x, food.y, box, box);
 
-  // Old head position
+  // Snake Movement
   let snakeX = snake[0].x;
   let snakeY = snake[0].y;
-
   if (d === "LEFT") snakeX -= box;
   if (d === "UP") snakeY -= box;
   if (d === "RIGHT") snakeX += box;
   if (d === "DOWN") snakeY += box;
 
-  // If eats food
+  // Eat food
   if (snakeX === food.x && snakeY === food.y) {
     score++;
     eatSound.play();
@@ -303,11 +368,10 @@ function draw() {
 
   snake.unshift(newHead);
 
-  // Update Scoreboard
   document.getElementById("score").innerText =
     "Score: " + score + " | Stage: " + stage + " | Player: Judy Ann Faith Castillo";
 
-  // Unlock next stage at 10 points
+  // Unlock next stage
   if (score >= 10) {
     clearInterval(game);
     unlockedStages = Math.max(unlockedStages, stage + 1);
@@ -315,6 +379,11 @@ function draw() {
     alert("Stage " + stage + " Cleared! 🎉");
     buildMenu();
   }
+}
+
+// Show mobile controls on phones
+if (/Mobi|Android/i.test(navigator.userAgent)) {
+  document.getElementById("mobileControls").style.display = "block";
 }
 </script>
 </body>
