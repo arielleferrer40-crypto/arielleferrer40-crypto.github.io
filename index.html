@@ -10,7 +10,7 @@
       --panel: rgba(255,255,255,0.06);
       --accent: #ffcc00;
       --muted: rgba(255,255,255,0.8);
-      --control-size: 56px;
+      --control-size: 44px; /* Smaller for better fit */
     }
 
     html,body{
@@ -33,43 +33,72 @@
       box-sizing:border-box;
     }
 
-    /* Canvas scales but keeps aspect ratio */
+    /* Canvas takes more space now */
     #game-canvas{
       background: linear-gradient(180deg,#05102b,#07132f);
       border-radius: 10px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-      max-width: 100%;
-      max-height: 100%;
+      max-width: 95%; /* Slightly more room */
+      max-height: 95%;
       display:block;
     }
 
-    /* Touch controls - bottom-left */
+    /* Touch controls - now bottom-center for better fit */
     #touch-controls{
       position: absolute;
-      left:12px;
+      left:50%;
       bottom:12px;
+      transform: translateX(-50%);
       display:grid;
       grid-template-columns: var(--control-size) var(--control-size);
-      gap:10px;
+      gap:6px; /* Tighter gap */
       z-index:10;
       user-select:none;
       touch-action:none;
+      opacity: 0.9; /* Subtler */
+      transition: opacity 0.3s;
     }
+
+    #touch-controls:hover,
+    #touch-controls:active { opacity: 1; }
 
     #touch-controls .dir{
       width:var(--control-size);
       height:var(--control-size);
-      border-radius:12px;
+      border-radius:10px; /* Slightly smaller radius */
       border:none;
       background:var(--panel);
       color:var(--accent);
       font-weight:800;
-      font-size:20px;
+      font-size:18px; /* Smaller text */
       display:flex;
       align-items:center;
       justify-content:center;
       -webkit-user-select:none;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.45);
+      box-shadow: 0 3px 10px rgba(0,0,0,0.4); /* Softer shadow */
+    }
+
+    /* Full controller mode (A/B/L/R buttons) */
+    #full-controls{
+      position: absolute;
+      right:12px;
+      bottom:12px;
+      display: none; /* Hidden by default */
+      flex-direction: column;
+      gap: 8px;
+      z-index:10;
+    }
+
+    .action-btn{
+      width: var(--control-size);
+      height: var(--control-size);
+      border-radius: 50%; /* Round like console buttons */
+      border: none;
+      background: var(--accent);
+      color: #111;
+      font-weight: bold;
+      font-size: 14px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.4);
     }
 
     /* Top-right overlay */
@@ -84,7 +113,7 @@
       align-items:flex-end;
     }
 
-    #start-btn{
+    #start-btn, #toggle-controls{
       padding:8px 12px;
       border-radius:10px;
       border:none;
@@ -112,10 +141,12 @@
       z-index:5;
     }
 
-    /* Make controls slightly smaller on small viewports */
-    @media (max-width:420px){
-      :root { --control-size: 48px; }
-      #touch-controls { gap:8px; }
+    /* Even smaller on tiny screens or landscape */
+    @media (max-width:420px) or (orientation: landscape){
+      :root { --control-size: 36px; }
+      #touch-controls { gap:4px; }
+      #full-controls { gap:6px; }
+      #game-canvas { max-width: 98%; max-height: 98%; }
     }
   </style>
 </head>
@@ -123,25 +154,33 @@
   <div id="game-root">
     <canvas id="game-canvas" aria-label="Game canvas"></canvas>
 
-    <!-- On-screen controls -->
-    <div id="touch-controls" aria-hidden="false">
+    <!-- D-pad controls (bottom-center now) -->
+    <div id="touch-controls">
       <button class="dir up" data-dir="up" aria-label="Up">▲</button>
       <button class="dir left" data-dir="left" aria-label="Left">◀</button>
       <button class="dir right" data-dir="right" aria-label="Right">▶</button>
       <button class="dir down" data-dir="down" aria-label="Down">▼</button>
     </div>
 
-    <div id="overlay" aria-hidden="false">
-      <button id="start-btn">Start</button>
-      <div id="status">Tap Start to play!</div>
+    <!-- Full controller extras (A/B for actions, L/R shortcuts) -->
+    <div id="full-controls">
+      <button class="action-btn" id="l-btn">L</button>
+      <button class="action-btn" id="r-btn">R</button>
+      <button class="action-btn" id="a-btn">A</button>
+      <button class="action-btn" id="b-btn">B</button>
     </div>
 
-    <div id="credit">Pac-like demo • Mobile friendly • Touch/swipe/keyboard</div>
+    <div id="overlay">
+      <button id="toggle-controls">Full Ctrl</button>
+      <button id="start-btn">Start</button>
+      <div id="status">Tap Start to play! Swipe or use buttons.</div>
+    </div>
+
+    <div id="credit">Pac-like demo • Better mobile fit • Touch/swipe/keyboard</div>
   </div>
 
   <script>
-    /* Inline JS - Simple mobile-friendly Pac-like game
-       Responsive, touch/swipe/keyboard controls, pellets, collisions */
+    /* Inline JS - Updated for better control fit */
 
     const canvas = document.getElementById('game-canvas');
     const ctx = canvas.getContext('2d');
@@ -149,11 +188,11 @@
     // Virtual grid (tile-based)
     const COLS = 19;
     const ROWS = 21;
-    const TILE = 16;                 // virtual pixel size
+    const TILE = 16;
     const VIRTUAL_W = COLS * TILE;
     const VIRTUAL_H = ROWS * TILE;
 
-    // Generate simple map (frame walls + scattered walls + pellets)
+    // Generate simple map
     const map = new Array(ROWS).fill(0).map((_, r) => {
       return new Array(COLS).fill(0).map((_, c) => {
         if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) return 1; // wall
@@ -169,12 +208,16 @@
       radius: TILE * 0.45,
       dir: null,
       nextDir: null,
-      speed: 80, // virtual px / s
+      speed: 80,
     };
 
-    // Canvas resize & DPR handling (responsive)
+    // Game state
+    let gameRunning = false;
+    let score = 0;
+
+    // Canvas resize (improved for landscape/mobile)
     function resizeCanvas() {
-      const scale = Math.min(window.innerWidth / VIRTUAL_W, window.innerHeight / VIRTUAL_H);
+      const scale = Math.min((window.innerWidth * 0.95) / VIRTUAL_W, (window.innerHeight * 0.95) / VIRTUAL_H);
       const displayW = Math.floor(VIRTUAL_W * scale);
       const displayH = Math.floor(VIRTUAL_H * scale);
       const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -187,20 +230,22 @@
       ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
     }
     window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
     resizeCanvas();
 
-    // Input handling
+    // Input handling (same as before, but added action buttons)
     const keys = {};
     window.addEventListener('keydown', e => {
       const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
       if (mapKey) { keys[mapKey] = true; e.preventDefault(); }
+      if (e.key === ' ') { restartGame(); e.preventDefault(); } // Space for restart
     });
     window.addEventListener('keyup', e => {
       const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
       if (mapKey) keys[mapKey] = false;
     });
 
-    // Touch buttons
+    // Touch buttons (D-pad)
     document.querySelectorAll('#touch-controls .dir').forEach(btn => {
       const dir = btn.dataset.dir;
       btn.addEventListener('touchstart', e => { keys[dir] = true; e.preventDefault(); }, {passive:false});
@@ -209,29 +254,40 @@
       btn.addEventListener('mouseup', e => { keys[dir] = false; e.preventDefault(); });
     });
 
-    // Simple swipe detection
+    // Full controls actions
+    document.getElementById('l-btn').addEventListener('click', () => keys.left = true, setTimeout(() => keys.left = false, 100));
+    document.getElementById('r-btn').addEventListener('click', () => keys.right = true, setTimeout(() => keys.right = false, 100));
+    document.getElementById('a-btn').addEventListener('click', restartGame);
+    document.getElementById('b-btn').addEventListener('click', () => gameRunning = !gameRunning); // Pause/unpause
+
+    // Toggle full controls
+    document.getElementById('toggle-controls').addEventListener('click', () => {
+      const full = document.getElementById('full-controls');
+      full.style.display = full.style.display === 'none' ? 'flex' : 'none';
+    });
+
+    // Simple swipe (improved threshold for mobile)
     (function addSwipe(el = document.body) {
-      let sx=0, sy=0, threshold=20;
+      let sx=0, sy=0, threshold=30; // Slightly higher for accuracy
       el.addEventListener('touchstart', e => { const t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY; }, {passive:true});
       el.addEventListener('touchend', e => {
         const t = e.changedTouches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
         if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > threshold) {
           keys.left = dx < 0; keys.right = dx > 0;
-          setTimeout(()=>{ keys.left = keys.right = false; }, 120);
+          setTimeout(()=>{ keys.left = keys.right = false; }, 150);
         } else if (Math.abs(dy) > threshold) {
           keys.up = dy < 0; keys.down = dy > 0;
-          setTimeout(()=>{ keys.up = keys.down = false; }, 120);
+          setTimeout(()=>{ keys.up = keys.down = false; }, 150);
         }
       }, {passive:true});
     })();
 
-    // Utility: tile lookup
+    // Utils (tileAt, collides) - same as before
     function tileAt(c, r) {
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return 1;
       return map[r][c];
     }
 
-    // Collision: circle vs tile walls
     function collides(x, y, r) {
       const left = Math.floor((x - r) / TILE);
       const right = Math.floor((x + r) / TILE);
@@ -248,6 +304,7 @@
     // Game loop
     let last = performance.now();
     function step(now) {
+      if (!gameRunning) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       update(dt);
@@ -255,7 +312,7 @@
       requestAnimationFrame(step);
     }
 
-    // Update
+    // Update (added scoring)
     function update(dt) {
       const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
       if (desire) player.nextDir = desire;
@@ -284,23 +341,22 @@
         }
       }
 
-      // Eat pellets
+      // Eat pellets & score
       const col = Math.floor(player.x / TILE);
       const row = Math.floor(player.y / TILE);
       if (map[row] && map[row][col] === 2) {
         map[row][col] = 0;
+        score += 10;
       }
     }
 
-    // Render
+    // Render (added score display)
     function render() {
       ctx.clearRect(0, 0, VIRTUAL_W, VIRTUAL_H);
 
-      // background
       ctx.fillStyle = '#05102b';
       ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
 
-      // tiles
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           const t = map[r][c];
@@ -319,7 +375,7 @@
         }
       }
 
-      // player (chomping circle)
+      // Player
       ctx.save();
       ctx.translate(player.x, player.y);
       ctx.fillStyle = '#ffcc00';
@@ -337,9 +393,14 @@
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+
+      // Score overlay on canvas
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 20px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText(`Score: ${score}`, 10, 25);
     }
 
-    // rounded rect util
     function roundRect(ctx, x, y, w, h, r) {
       ctx.beginPath();
       ctx.moveTo(x + r, y);
@@ -350,18 +411,32 @@
       ctx.closePath();
     }
 
-    // Start controls
-    document.getElementById('start-btn').addEventListener('click', () => {
+    function restartGame() {
       player.x = TILE * 1.5; player.y = TILE * 1.5; player.dir = null; player.nextDir = null;
+      score = 0;
+      // Reset pellets (simple regen)
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (map[r][c] !== 1) map[r][c] = 2;
+        }
+      }
+      document.getElementById('status').textContent = `Restarted! Score: ${score}`;
+    }
+
+    // Start button
+    document.getElementById('start-btn').addEventListener('click', () => {
+      gameRunning = true;
       last = performance.now();
       requestAnimationFrame(step);
-      document.getElementById('status').textContent = 'Playing! Eat all pellets.';
+      document.getElementById('status').textContent = 'Playing! Eat pellets for score.';
       document.getElementById('start-btn').style.display = 'none';
+      document.getElementById('toggle-controls').style.display = 'block';
     });
 
-    // Auto-start on load (tap Start first for mobile)
+    // Auto-setup
     window.addEventListener('load', () => {
       resizeCanvas();
+      document.getElementById('status').textContent = 'Tap Start to play! Controls fit better now.';
     });
   </script>
 </body>
