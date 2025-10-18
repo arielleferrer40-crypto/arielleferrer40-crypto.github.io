@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Pac-like Mobile Game - Classic Layout</title>
+  <title>Pac-like Mobile Game - Enhanced</title>
   <style>
     :root{
       --bg: #000;
@@ -13,6 +13,7 @@
       --player-color: #ffff00;
       --hud-bg: #000;
       --hud-text: #ffff00;
+      --powerup-color: #ff6600;
     }
 
     html,body{
@@ -32,7 +33,6 @@
       width: 100vw;
     }
 
-    /* Main game area - takes most of the screen */
     #game-area {
       flex: 1;
       display: flex;
@@ -48,7 +48,6 @@
       border: 2px solid var(--wall-color);
     }
 
-    /* Right sidebar - HUD and controls */
     #hud-panel {
       width: 200px;
       background: var(--hud-bg);
@@ -81,7 +80,6 @@
       margin: 2px 0;
     }
 
-    /* Mobile controls in HUD */
     #mobile-controls {
       display: grid;
       grid-template-columns: 1fr 1fr 1fr;
@@ -119,7 +117,6 @@
       cursor: pointer;
     }
 
-    /* Lives display */
     #lives-display {
       display: flex;
       justify-content: center;
@@ -147,7 +144,6 @@
       transform: translate(-50%, -50%);
     }
 
-    /* Game overlay messages */
     #game-overlay {
       position: absolute;
       top: 0;
@@ -179,7 +175,17 @@
       cursor: pointer;
     }
 
-    /* Responsive adjustments */
+    .powerup-timer {
+      color: var(--powerup-color);
+      font-weight: bold;
+      animation: pulse 0.5s infinite alternate;
+    }
+
+    @keyframes pulse {
+      from { opacity: 1; }
+      to { opacity: 0.5; }
+    }
+
     @media (max-width: 768px) {
       #game-container {
         flex-direction: column;
@@ -231,8 +237,10 @@
         <div class="hud-title" style="margin-top: 15px;">LIVES</div>
         <div id="lives-display"></div>
         
-        <div class="hud-label" style="margin-top: 15px;">Pellets Left:</div>
+        <div class="hud-label" style="margin-top: 15px;">Pellets:</div>
         <div id="pellets-display" class="hud-value">0</div>
+        
+        <div id="powerup-status" style="margin-top: 10px;"></div>
       </div>
 
       <div class="hud-section">
@@ -251,12 +259,11 @@
   </div>
 
   <script>
-    // Sound effects using Web Audio API
+    // Enhanced Audio System
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     let soundEnabled = true;
 
-    // Sound generation functions
-    function createTone(frequency, duration, type = 'square') {
+    function createTone(frequency, duration, type = 'square', volume = 0.1) {
       if (!soundEnabled) return;
       
       const oscillator = audioContext.createOscillator();
@@ -268,41 +275,46 @@
       oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
       oscillator.type = type;
       
-      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+      gainNode.gain.setValueAtTime(volume, audioContext.currentTime);
       gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
       
       oscillator.start(audioContext.currentTime);
       oscillator.stop(audioContext.currentTime + duration);
     }
 
-    // Sound effects
     const sounds = {
       chomp: () => {
         createTone(800, 0.1);
         setTimeout(() => createTone(600, 0.1), 50);
+      },
+      powerup: () => {
+        createTone(1000, 0.2, 'sine');
+        setTimeout(() => createTone(1200, 0.2, 'sine'), 100);
+        setTimeout(() => createTone(1400, 0.3, 'sine'), 200);
       },
       death: () => {
         for (let i = 0; i < 10; i++) {
           setTimeout(() => createTone(400 - i * 30, 0.1), i * 50);
         }
       },
+      eatGhost: () => {
+        createTone(400, 0.5, 'sawtooth', 0.15);
+      },
       levelComplete: () => {
         const notes = [523, 659, 784, 1047];
         notes.forEach((note, i) => {
           setTimeout(() => createTone(note, 0.3, 'sine'), i * 150);
         });
-      },
-      ghostMove: () => {
-        createTone(200, 0.05, 'sawtooth');
       }
     };
 
     const canvas = document.getElementById('game-canvas');
     const ctx = canvas.getContext('2d');
 
-    const COLS = 25;
-    const ROWS = 25;
-    const TILE = 20;
+    // Grid-based movement system
+    const COLS = 27;
+    const ROWS = 31;
+    const TILE = 18;
     const VIRTUAL_W = COLS * TILE;
     const VIRTUAL_H = ROWS * TILE;
 
@@ -312,22 +324,65 @@
     let score = 0;
     let lives = 3;
     let pelletsRemaining = 0;
+    let powerUpActive = false;
+    let powerUpTimer = 0;
 
+    // Enhanced maze generation
     function generateMap() {
-      const newMap = new Array(ROWS).fill(0).map((_, r) => {
-        return new Array(COLS).fill(0).map((_, c) => {
-          // Create more interesting maze pattern
-          if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) return 1;
-          if ((r % 4 === 0 || c % 4 === 0) && Math.random() > 0.3) return 1;
-          if (r > 10 && r < 14 && c > 10 && c < 14) return 0; // Ghost home area
-          return 2;
-        });
-      });
+      const newMap = new Array(ROWS).fill(0).map(() => new Array(COLS).fill(0));
       
-      pelletsRemaining = 0;
+      // Create border walls
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
-          if (newMap[r][c] === 2) pelletsRemaining++;
+          if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
+            newMap[r][c] = 1; // wall
+          }
+        }
+      }
+      
+      // Create internal maze structure
+      for (let r = 2; r < ROWS - 2; r += 2) {
+        for (let c = 2; c < COLS - 2; c += 2) {
+          if (Math.random() > 0.3) {
+            newMap[r][c] = 1;
+            // Add connecting walls
+            if (Math.random() > 0.5 && c < COLS - 3) newMap[r][c + 1] = 1;
+            if (Math.random() > 0.5 && r < ROWS - 3) newMap[r + 1][c] = 1;
+          }
+        }
+      }
+      
+      // Ghost home area (center)
+      const centerR = Math.floor(ROWS / 2);
+      const centerC = Math.floor(COLS / 2);
+      for (let r = centerR - 2; r <= centerR + 2; r++) {
+        for (let c = centerC - 3; c <= centerC + 3; c++) {
+          if (r === centerR - 2 || r === centerR + 2 || c === centerC - 3 || c === centerC + 3) {
+            newMap[r][c] = 1;
+          } else {
+            newMap[r][c] = 0;
+          }
+        }
+      }
+      
+      // Add pellets and power-ups
+      pelletsRemaining = 0;
+      for (let r = 1; r < ROWS - 1; r++) {
+        for (let c = 1; c < COLS - 1; c++) {
+          if (newMap[r][c] === 0) {
+            // Skip starting areas
+            if ((r < 3 && c < 3) || (r > centerR - 3 && r < centerR + 3 && c > centerC - 4 && c < centerC + 4)) {
+              continue;
+            }
+            
+            // 5% chance for power-up, otherwise pellet
+            if (Math.random() < 0.05) {
+              newMap[r][c] = 3; // power-up
+            } else {
+              newMap[r][c] = 2; // pellet
+            }
+            pelletsRemaining++;
+          }
         }
       }
       
@@ -336,38 +391,108 @@
 
     let map = generateMap();
 
+    // Grid-based player
     const player = {
+      gridX: 1,
+      gridY: 1,
       x: TILE * 1.5,
       y: TILE * 1.5,
-      radius: TILE * 0.4,
+      radius: TILE * 0.35,
       dir: null,
       nextDir: null,
-      speed: 100,
+      speed: 4, // tiles per second
+      moving: false,
+      moveProgress: 0
     };
 
-    const ghostColors = ['#ff0000', '#ffb8ff', '#00ffff', '#ffb852'];
-    const ghostBehaviors = ['chase', 'ambush', 'patrol', 'random'];
+    // Enhanced Ghost AI with proper pathfinding
+    const ghostColors = ['#ff0000', '#ffb8ff', '#00ffff', '#ffb852', '#00ff00'];
+    const ghostNames = ['Blinky', 'Pinky', 'Inky', 'Clyde', 'Sue'];
     let ghosts = [];
 
     function createGhost(index, level) {
+      const centerR = Math.floor(ROWS / 2);
+      const centerC = Math.floor(COLS / 2);
+      
       const startPositions = [
-        {x: TILE * 12, y: TILE * 12},
-        {x: TILE * 13, y: TILE * 12},
-        {x: TILE * 12, y: TILE * 13},
-        {x: TILE * 13, y: TILE * 13}
+        {gridX: centerC - 1, gridY: centerR},
+        {gridX: centerC + 1, gridY: centerR},
+        {gridX: centerC, gridY: centerR - 1},
+        {gridX: centerC, gridY: centerR + 1},
+        {gridX: centerC - 2, gridY: centerR}
       ];
       
+      const pos = startPositions[index % 5];
+      
       return {
-        x: startPositions[index % 4].x,
-        y: startPositions[index % 4].y,
-        radius: TILE * 0.35,
+        gridX: pos.gridX,
+        gridY: pos.gridY,
+        x: pos.gridX * TILE + TILE / 2,
+        y: pos.gridY * TILE + TILE / 2,
+        radius: TILE * 0.32,
         dir: ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)],
-        speed: 70 + (level * 10),
-        color: ghostColors[index % 4],
-        behavior: ghostBehaviors[index % 4],
-        changeTimer: 0,
-        moveSound: 0
+        speed: 3 + level * 0.3, // tiles per second
+        color: ghostColors[index % 5],
+        name: ghostNames[index % 5],
+        mode: 'chase', // chase, scatter, frightened
+        modeTimer: 0,
+        moving: false,
+        moveProgress: 0,
+        frightened: false,
+        frightenedTimer: 0
       };
+    }
+
+    // A* pathfinding for ghosts
+    function findPath(startX, startY, targetX, targetY) {
+      const openSet = [{x: startX, y: startY, g: 0, h: 0, f: 0, parent: null}];
+      const closedSet = [];
+      
+      while (openSet.length > 0) {
+        openSet.sort((a, b) => a.f - b.f);
+        const current = openSet.shift();
+        closedSet.push(current);
+        
+        if (current.x === targetX && current.y === targetY) {
+          const path = [];
+          let node = current;
+          while (node.parent) {
+            path.unshift({x: node.x, y: node.y});
+            node = node.parent;
+          }
+          return path;
+        }
+        
+        const neighbors = [
+          {x: current.x + 1, y: current.y},
+          {x: current.x - 1, y: current.y},
+          {x: current.x, y: current.y + 1},
+          {x: current.x, y: current.y - 1}
+        ];
+        
+        for (const neighbor of neighbors) {
+          if (neighbor.x < 0 || neighbor.x >= COLS || neighbor.y < 0 || neighbor.y >= ROWS) continue;
+          if (map[neighbor.y][neighbor.x] === 1) continue;
+          if (closedSet.find(n => n.x === neighbor.x && n.y === neighbor.y)) continue;
+          
+          const g = current.g + 1;
+          const h = Math.abs(neighbor.x - targetX) + Math.abs(neighbor.y - targetY);
+          const f = g + h;
+          
+          const existing = openSet.find(n => n.x === neighbor.x && n.y === neighbor.y);
+          if (!existing || g < existing.g) {
+            if (existing) {
+              existing.g = g;
+              existing.f = f;
+              existing.parent = current;
+            } else {
+              openSet.push({x: neighbor.x, y: neighbor.y, g, h, f, parent: current});
+            }
+          }
+        }
+      }
+      
+      return []; // No path found
     }
 
     function updateHUD() {
@@ -375,7 +500,6 @@
       document.getElementById('level-display').textContent = currentLevel;
       document.getElementById('pellets-display').textContent = pelletsRemaining;
       
-      // Update lives display
       const livesContainer = document.getElementById('lives-display');
       livesContainer.innerHTML = '';
       for (let i = 0; i < lives; i++) {
@@ -383,21 +507,37 @@
         lifeIcon.className = 'life-icon';
         livesContainer.appendChild(lifeIcon);
       }
+      
+      const powerupStatus = document.getElementById('powerup-status');
+      if (powerUpActive) {
+        powerupStatus.innerHTML = `<div class="powerup-timer">POWER: ${Math.ceil(powerUpTimer)}s</div>`;
+      } else {
+        powerupStatus.innerHTML = '';
+      }
     }
 
     function initializeLevel(level) {
       map = generateMap();
       
+      // Reset player to grid position
+      player.gridX = 1;
+      player.gridY = 1;
       player.x = TILE * 1.5;
       player.y = TILE * 1.5;
       player.dir = null;
       player.nextDir = null;
+      player.moving = false;
+      player.moveProgress = 0;
       
+      // Create 4-5 ghosts based on level
       ghosts = [];
-      const numGhosts = Math.min(4, Math.floor(level / 2) + 1);
+      const numGhosts = Math.min(5, 3 + Math.floor(level / 3));
       for (let i = 0; i < numGhosts; i++) {
         ghosts.push(createGhost(i, level));
       }
+      
+      powerUpActive = false;
+      powerUpTimer = 0;
       
       updateHUD();
     }
@@ -423,7 +563,6 @@
     window.addEventListener('resize', resizeCanvas);
     resizeCanvas();
 
-    // Input handling
     const keys = {};
     window.addEventListener('keydown', e => {
       if (audioContext.state === 'suspended') {
@@ -438,7 +577,6 @@
       if (mapKey) keys[mapKey] = false;
     });
 
-    // Touch controls
     document.querySelectorAll('.control-btn').forEach(btn => {
       const dir = btn.dataset.dir;
       btn.addEventListener('touchstart', e => { 
@@ -453,298 +591,216 @@
       btn.addEventListener('mouseup', e => { keys[dir] = false; e.preventDefault(); });
     });
 
-    // Sound toggle
     document.getElementById('sound-btn').addEventListener('click', () => {
       soundEnabled = !soundEnabled;
       document.getElementById('sound-btn').textContent = `SOUND: ${soundEnabled ? 'ON' : 'OFF'}`;
     });
 
-    function tileAt(c, r) {
-      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return 1;
-      return map[r][c];
+    function canMoveTo(gridX, gridY) {
+      if (gridX < 0 || gridX >= COLS || gridY < 0 || gridY >= ROWS) return false;
+      return map[gridY][gridX] !== 1;
     }
 
-    function collides(x, y, r) {
-      const left = Math.floor((x - r) / TILE);
-      const right = Math.floor((x + r) / TILE);
-      const top = Math.floor((y - r) / TILE);
-      const bottom = Math.floor((y + r) / TILE);
-      for (let rr = top; rr <= bottom; rr++) {
-        for (let cc = left; cc <= right; cc++) {
-          if (tileAt(cc, rr) === 1) return true;
+    function updatePlayer(dt) {
+      // Handle direction input
+      const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
+      if (desire) player.nextDir = desire;
+      
+      if (!player.moving) {
+        // Try to start moving in desired direction
+        if (player.nextDir) {
+          let newGridX = player.gridX;
+          let newGridY = player.gridY;
+          
+          switch (player.nextDir) {
+            case 'up': newGridY--; break;
+            case 'down': newGridY++; break;
+            case 'left': newGridX--; break;
+            case 'right': newGridX++; break;
+          }
+          
+          if (canMoveTo(newGridX, newGridY)) {
+            player.dir = player.nextDir;
+            player.nextDir = null;
+            player.moving = true;
+            player.moveProgress = 0;
+          }
+        }
+        
+        // Try to continue in current direction
+        if (!player.moving && player.dir) {
+          let newGridX = player.gridX;
+          let newGridY = player.gridY;
+          
+          switch (player.dir) {
+            case 'up': newGridY--; break;
+            case 'down': newGridY++; break;
+            case 'left': newGridX--; break;
+            case 'right': newGridX++; break;
+          }
+          
+          if (canMoveTo(newGridX, newGridY)) {
+            player.moving = true;
+            player.moveProgress = 0;
+          }
         }
       }
-      return false;
-    }
-
-    function distance(x1, y1, x2, y2) {
-      return Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+      
+      if (player.moving) {
+        player.moveProgress += player.speed * dt;
+        
+        if (player.moveProgress >= 1) {
+          // Complete the move
+          switch (player.dir) {
+            case 'up': player.gridY--; break;
+            case 'down': player.gridY++; break;
+            case 'left': player.gridX--; break;
+            case 'right': player.gridX++; break;
+          }
+          
+          player.moving = false;
+          player.moveProgress = 0;
+          
+          // Check for pellets/powerups
+          const tile = map[player.gridY][player.gridX];
+          if (tile === 2) {
+            map[player.gridY][player.gridX] = 0;
+            score += 10 * currentLevel;
+            pelletsRemaining--;
+            sounds.chomp();
+            updateHUD();
+          } else if (tile === 3) {
+            map[player.gridY][player.gridX] = 0;
+            score += 50 * currentLevel;
+            pelletsRemaining--;
+            powerUpActive = true;
+            powerUpTimer = 8; // 8 seconds of power
+            sounds.powerup();
+            
+            // Make all ghosts frightened
+            ghosts.forEach(ghost => {
+              ghost.frightened = true;
+              ghost.frightenedTimer = 8;
+            });
+            
+            updateHUD();
+          }
+        }
+        
+        // Update visual position
+        const startX = player.gridX * TILE + TILE / 2;
+        const startY = player.gridY * TILE + TILE / 2;
+        let targetX = startX, targetY = startY;
+        
+        switch (player.dir) {
+          case 'up': targetY = startY - TILE; break;
+          case 'down': targetY = startY + TILE; break;
+          case 'left': targetX = startX - TILE; break;
+          case 'right': targetX = startX + TILE; break;
+        }
+        
+        player.x = startX + (targetX - startX) * player.moveProgress;
+        player.y = startY + (targetY - startY) * player.moveProgress;
+      } else {
+        player.x = player.gridX * TILE + TILE / 2;
+        player.y = player.gridY * TILE + TILE / 2;
+      }
     }
 
     function updateGhost(ghost, dt) {
-      ghost.changeTimer -= dt;
-      ghost.moveSound -= dt;
-      
-      if (ghost.moveSound <= 0) {
-        ghost.moveSound = 0.5;
-        if (Math.random() < 0.1) sounds.ghostMove();
+      ghost.modeTimer += dt;
+      if (ghost.frightenedTimer > 0) {
+        ghost.frightenedTimer -= dt;
+        if (ghost.frightenedTimer <= 0) {
+          ghost.frightened = false;
+        }
       }
       
-      const aggressiveness = Math.min(1, currentLevel / 10);
-      
-      if (ghost.changeTimer <= 0) {
-        ghost.changeTimer = 1 + Math.random() * 2;
+      if (!ghost.moving) {
+        let targetX = player.gridX;
+        let targetY = player.gridY;
         
-        switch (ghost.behavior) {
-          case 'chase':
-            if (player.x > ghost.x) ghost.dir = 'right';
-            else if (player.x < ghost.x) ghost.dir = 'left';
-            else if (player.y > ghost.y) ghost.dir = 'down';
-            else ghost.dir = 'up';
-            break;
-            
-          case 'ambush':
-            let targetX = player.x;
-            let targetY = player.y;
-            if (player.dir === 'up') targetY -= TILE * 4;
-            else if (player.dir === 'down') targetY += TILE * 4;
-            else if (player.dir === 'left') targetX -= TILE * 4;
-            else if (player.dir === 'right') targetX += TILE * 4;
-            
-            if (targetX > ghost.x) ghost.dir = 'right';
-            else if (targetX < ghost.x) ghost.dir = 'left';
-            else if (targetY > ghost.y) ghost.dir = 'down';
-            else ghost.dir = 'up';
-            break;
-            
-          case 'patrol':
-            if (Math.random() < 0.3 + aggressiveness * 0.4) {
-              if (Math.abs(player.x - ghost.x) > Math.abs(player.y - ghost.y)) {
-                ghost.dir = player.x > ghost.x ? 'right' : 'left';
-              } else {
-                ghost.dir = player.y > ghost.y ? 'down' : 'up';
-              }
-            } else {
-              ghost.dir = ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)];
-            }
-            break;
-            
-          case 'random':
-            if (Math.random() < aggressiveness * 0.5) {
-              if (player.x > ghost.x) ghost.dir = 'right';
-              else if (player.x < ghost.x) ghost.dir = 'left';
-              else if (player.y > ghost.y) ghost.dir = 'down';
-              else ghost.dir = 'up';
-            } else {
-              ghost.dir = ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)];
-            }
-            break;
-        }
-      }
-      
-      const vx = ghost.dir === 'left' ? -1 : ghost.dir === 'right' ? 1 : 0;
-      const vy = ghost.dir === 'up' ? -1 : ghost.dir === 'down' ? 1 : 0;
-      const nx = ghost.x + vx * ghost.speed * dt;
-      const ny = ghost.y + vy * ghost.speed * dt;
-      
-      if (!collides(nx, ny, ghost.radius - 1)) {
-        ghost.x = nx;
-        ghost.y = ny;
-      } else {
-        ghost.changeTimer = 0;
-      }
-    }
-
-    let last = performance.now();
-    function step(now) {
-      if (gameRunning) {
-        const dt = Math.min(0.05, (now - last) / 1000);
-        last = now;
-        update(dt);
-        render();
-      }
-      requestAnimationFrame(step);
-    }
-
-    function update(dt) {
-      const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
-      if (desire) player.nextDir = desire;
-
-      if (player.nextDir) {
-        const dir = player.nextDir;
-        const vx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
-        const vy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
-        const nx = player.x + vx * player.speed * dt;
-        const ny = player.y + vy * player.speed * dt;
-        if (!collides(nx, ny, player.radius - 1)) {
-          player.dir = player.nextDir;
-          player.nextDir = null;
-        }
-      }
-
-      if (player.dir) {
-        const vx = player.dir === 'left' ? -1 : player.dir === 'right' ? 1 : 0;
-        const vy = player.dir === 'up' ? -1 : player.dir === 'down' ? 1 : 0;
-        const nx = player.x + vx * player.speed * dt;
-        const ny = player.y + vy * player.speed * dt;
-        if (!collides(nx, ny, player.radius - 1)) {
-          player.x = nx; player.y = ny;
+        if (ghost.frightened) {
+          // Run away from player
+          targetX = ghost.gridX + (ghost.gridX - player.gridX);
+          targetY = ghost.gridY + (ghost.gridY - player.gridY);
         } else {
-          player.dir = null;
-        }
-      }
-
-      const col = Math.floor(player.x / TILE);
-      const row = Math.floor(player.y / TILE);
-      if (map[row] && map[row][col] === 2) {
-        map[row][col] = 0;
-        score += 10 * currentLevel;
-        pelletsRemaining--;
-        sounds.chomp();
-        updateHUD();
-        
-        if (pelletsRemaining === 0) {
-          gameRunning = false;
-          sounds.levelComplete();
-          if (currentLevel >= 10) {
-            showGameMessage('🎉 VICTORY! 🎉', 'You completed all 10 levels!', 'PLAY AGAIN', () => {
-              currentLevel = 1;
-              lives = 3;
-              score = 0;
-              startGame();
-            });
-          } else {
-            showGameMessage('LEVEL COMPLETE!', `Level ${currentLevel + 1} ready!`, 'NEXT LEVEL', () => {
-              currentLevel++;
-              initializeLevel(currentLevel);
-              startGame();
-            });
+          // Different AI behaviors
+          switch (ghost.name) {
+            case 'Blinky': // Direct chase
+              break;
+            case 'Pinky': // Ambush (4 tiles ahead)
+              switch (player.dir) {
+                case 'up': targetY -= 4; break;
+                case 'down': targetY += 4; break;
+                case 'left': targetX -= 4; break;
+                case 'right': targetX += 4; break;
+              }
+              break;
+            case 'Inky': // Complex behavior
+              targetX = player.gridX + Math.floor(Math.random() * 6 - 3);
+              targetY = player.gridY + Math.floor(Math.random() * 6 - 3);
+              break;
+            case 'Clyde': // Keep distance
+              const dist = Math.abs(ghost.gridX - player.gridX) + Math.abs(ghost.gridY - player.gridY);
+              if (dist < 8) {
+                targetX = ghost.gridX + (ghost.gridX - player.gridX);
+                targetY = ghost.gridY + (ghost.gridY - player.gridY);
+              }
+              break;
+            case 'Sue': // Patrol behavior
+              if (ghost.modeTimer > 5) {
+                ghost.modeTimer = 0;
+                targetX = Math.floor(Math.random() * COLS);
+                targetY = Math.floor(Math.random() * ROWS);
+              }
+              break;
           }
         }
-      }
-
-      ghosts.forEach(ghost => updateGhost(ghost, dt));
-
-      ghosts.forEach(ghost => {
-        if (distance(player.x, player.y, ghost.x, ghost.y) < player.radius + ghost.radius - 2) {
-          lives--;
-          sounds.death();
-          updateHUD();
+        
+        // Clamp target to valid range
+        targetX = Math.max(0, Math.min(COLS - 1, targetX));
+        targetY = Math.max(0, Math.min(ROWS - 1, targetY));
+        
+        // Find path to target
+        const path = findPath(ghost.gridX, ghost.gridY, targetX, targetY);
+        if (path.length > 0) {
+          const nextStep = path[0];
+          const dx = nextStep.x - ghost.gridX;
+          const dy = nextStep.y - ghost.gridY;
           
-          if (lives <= 0) {
-            gameRunning = false;
-            showGameMessage('GAME OVER!', `Final Score: ${score}`, 'RESTART', () => {
-              currentLevel = 1;
-              lives = 3;
-              score = 0;
-              startGame();
-            });
-          } else {
-            player.x = TILE * 1.5;
-            player.y = TILE * 1.5;
-            player.dir = null;
-            player.nextDir = null;
-          }
-        }
-      });
-    }
-
-    function render() {
-      ctx.clearRect(0, 0, VIRTUAL_W, VIRTUAL_H);
-      ctx.fillStyle = '#000000';
-      ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
-
-      // Draw maze
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          const t = map[r][c];
-          const x = c * TILE, y = r * TILE;
-          if (t === 1) {
-            ctx.fillStyle = '#0000ff';
-            ctx.fillRect(x + 2, y + 2, TILE - 4, TILE - 4);
-          } else if (t === 2) {
-            ctx.fillStyle = '#ffff00';
-            const cx = x + TILE / 2, cy = y + TILE / 2;
-            ctx.beginPath();
-            ctx.arc(cx, cy, 3, 0, Math.PI * 2);
-            ctx.fill();
-          }
+          if (dx > 0) ghost.dir = 'right';
+          else if (dx < 0) ghost.dir = 'left';
+          else if (dy > 0) ghost.dir = 'down';
+          else if (dy < 0) ghost.dir = 'up';
+          
+          ghost.moving = true;
+          ghost.moveProgress = 0;
         }
       }
-
-      // Draw ghosts
-      ghosts.forEach(ghost => {
-        ctx.fillStyle = ghost.color;
-        ctx.beginPath();
-        ctx.arc(ghost.x, ghost.y, ghost.radius, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Eyes
-        ctx.fillStyle = '#fff';
-        ctx.beginPath();
-        ctx.arc(ghost.x - 5, ghost.y - 4, 3, 0, Math.PI * 2);
-        ctx.arc(ghost.x + 5, ghost.y - 4, 3, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = '#000';
-        ctx.beginPath();
-        ctx.arc(ghost.x - 5, ghost.y - 4, 1.5, 0, Math.PI * 2);
-        ctx.arc(ghost.x + 5, ghost.y - 4, 1.5, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // Draw player (Pac-Man)
-      ctx.save();
-      ctx.translate(player.x, player.y);
-      ctx.fillStyle = '#ffff00';
-      const t = performance.now() / 150;
-      const mouth = Math.abs(Math.sin(t)) * 0.4 + 0.1;
-      let ang = 0;
-      if (player.dir === 'left') ang = Math.PI;
-      else if (player.dir === 'up') ang = -Math.PI / 2;
-      else if (player.dir === 'down') ang = Math.PI / 2;
-      const start = mouth * Math.PI + ang;
-      const end = (2 - mouth) * Math.PI + ang;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.arc(0, 0, player.radius, start, end, false);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-
-    function showGameMessage(title, text, buttonText, callback) {
-      document.getElementById('message-title').textContent = title;
-      document.getElementById('message-text').textContent = text;
-      document.getElementById('continue-btn').textContent = buttonText;
-      document.getElementById('game-overlay').style.display = 'flex';
       
-      document.getElementById('continue-btn').onclick = () => {
-        document.getElementById('game-overlay').style.display = 'none';
-        callback();
-      };
-    }
-
-    function startGame() {
-      initializeLevel(currentLevel);
-      gameRunning = true;
-      last = performance.now();
-      requestAnimationFrame(step);
-      document.getElementById('start-btn').textContent = 'RESTART';
-    }
-
-    document.getElementById('start-btn').addEventListener('click', () => {
-      if (audioContext.state === 'suspended') {
-        audioContext.resume();
-      }
-      startGame();
-    });
-
-    window.addEventListener('load', () => {
-      resizeCanvas();
-      initializeLevel(1);
-      render();
-    });
-  </script>
-</body>
-</html>
+      if (ghost.moving) {
+        const moveSpeed = ghost.frightened ? ghost.speed * 0.5 : ghost.speed;
+        ghost.moveProgress += moveSpeed * dt;
+        
+        if (ghost.moveProgress >= 1) {
+          switch (ghost.dir) {
+            case 'up': ghost.gridY--; break;
+            case 'down': ghost.gridY++; break;
+            case 'left': ghost.gridX--; break;
+            case 'right': ghost.gridX++; break;
+          }
+          
+          ghost.moving = false;
+          ghost.moveProgress = 0;
+        }
+        
+        // Update visual position
+        const startX = ghost.gridX * TILE + TILE / 2;
+        const startY = ghost.gridY * TILE + TILE / 2;
+        let targetX = startX, targetY = startY;
+        
+        switch (ghost.dir) {
+          case 'up': targetY = startY - TILE; break;
+          case 'down': targetY = startY + TILE; break;
+          case
