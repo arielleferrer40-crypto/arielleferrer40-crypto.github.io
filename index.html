@@ -3,14 +3,15 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>Pac-like Mobile Game</title>
+  <title>Pac-like Mobile Game - 10 Levels</title>
   <style>
     :root{
       --bg: #07102b;
       --panel: rgba(255,255,255,0.06);
       --accent: #ffcc00;
       --muted: rgba(255,255,255,0.8);
-      --control-size: 44px; /* Smaller for better fit */
+      --dpad-size: 120px;
+      --dpad-button-size: 40px;
     }
 
     html,body{
@@ -33,75 +34,46 @@
       box-sizing:border-box;
     }
 
-    /* Canvas takes more space now */
     #game-canvas{
       background: linear-gradient(180deg,#05102b,#07132f);
       border-radius: 10px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.6);
-      max-width: 95%; /* Slightly more room */
+      max-width: 95%;
       max-height: 95%;
       display:block;
     }
 
-    /* Touch controls - now bottom-center for better fit */
-    #touch-controls{
+    #dpad-container {
       position: absolute;
-      left:50%;
-      bottom:12px;
-      transform: translateX(-50%);
-      display:grid;
-      grid-template-columns: var(--control-size) var(--control-size);
-      gap:6px; /* Tighter gap */
-      z-index:10;
-      user-select:none;
-      touch-action:none;
-      opacity: 0.9; /* Subtler */
-      transition: opacity 0.3s;
+      left: 20px;
+      bottom: 20px;
+      width: var(--dpad-size);
+      height: var(--dpad-size);
+      z-index: 10;
+      user-select: none;
+      touch-action: none;
     }
 
-    #touch-controls:hover,
-    #touch-controls:active { opacity: 1; }
-
-    #touch-controls .dir{
-      width:var(--control-size);
-      height:var(--control-size);
-      border-radius:10px; /* Slightly smaller radius */
-      border:none;
-      background:var(--panel);
-      color:var(--accent);
-      font-weight:800;
-      font-size:18px; /* Smaller text */
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      -webkit-user-select:none;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.4); /* Softer shadow */
-    }
-
-    /* Full controller mode (A/B/L/R buttons) */
-    #full-controls{
+    .dpad-button {
       position: absolute;
-      right:12px;
-      bottom:12px;
-      display: none; /* Hidden by default */
-      flex-direction: column;
-      gap: 8px;
-      z-index:10;
-    }
-
-    .action-btn{
-      width: var(--control-size);
-      height: var(--control-size);
-      border-radius: 50%; /* Round like console buttons */
-      border: none;
-      background: var(--accent);
-      color: #111;
+      width: var(--dpad-button-size);
+      height: var(--dpad-button-size);
+      background: var(--panel);
+      border: 2px solid var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      font-size: 24px;
       font-weight: bold;
-      font-size: 14px;
-      box-shadow: 0 3px 10px rgba(0,0,0,0.4);
     }
 
-    /* Top-right overlay */
+    #dpad-up { top: 0; left: 50%; transform: translateX(-50%); }
+    #dpad-down { bottom: 0; left: 50%; transform: translateX(-50%); }
+    #dpad-left { left: 0; top: 50%; transform: translateY(-50%); }
+    #dpad-right { right: 0; top: 50%; transform: translateY(-50%); }
+
     #overlay{
       position:absolute;
       right:12px;
@@ -113,7 +85,7 @@
       align-items:flex-end;
     }
 
-    #start-btn, #toggle-controls{
+    #start-btn{
       padding:8px 12px;
       border-radius:10px;
       border:none;
@@ -130,7 +102,6 @@
       color:var(--muted);
     }
 
-    /* Small credit/footer */
     #credit{
       position:absolute;
       left:50%;
@@ -141,12 +112,36 @@
       z-index:5;
     }
 
-    /* Even smaller on tiny screens or landscape */
-    @media (max-width:420px) or (orientation: landscape){
-      :root { --control-size: 36px; }
-      #touch-controls { gap:4px; }
-      #full-controls { gap:6px; }
-      #game-canvas { max-width: 98%; max-height: 98%; }
+    /* Game over / level complete overlay */
+    #game-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.8);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 20;
+    }
+
+    #game-message {
+      background: var(--bg);
+      padding: 20px;
+      border-radius: 15px;
+      text-align: center;
+      border: 2px solid var(--accent);
+    }
+
+    #continue-btn {
+      margin-top: 15px;
+      padding: 10px 20px;
+      background: var(--accent);
+      color: #111;
+      border: none;
+      border-radius: 8px;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -154,52 +149,68 @@
   <div id="game-root">
     <canvas id="game-canvas" aria-label="Game canvas"></canvas>
 
-    <!-- D-pad controls (bottom-center now) -->
-    <div id="touch-controls">
-      <button class="dir up" data-dir="up" aria-label="Up">▲</button>
-      <button class="dir left" data-dir="left" aria-label="Left">◀</button>
-      <button class="dir right" data-dir="right" aria-label="Right">▶</button>
-      <button class="dir down" data-dir="down" aria-label="Down">▼</button>
-    </div>
-
-    <!-- Full controller extras (A/B for actions, L/R shortcuts) -->
-    <div id="full-controls">
-      <button class="action-btn" id="l-btn">L</button>
-      <button class="action-btn" id="r-btn">R</button>
-      <button class="action-btn" id="a-btn">A</button>
-      <button class="action-btn" id="b-btn">B</button>
+    <div id="dpad-container">
+      <div id="dpad-up" class="dpad-button" data-dir="up">▲</div>
+      <div id="dpad-down" class="dpad-button" data-dir="down">▼</div>
+      <div id="dpad-left" class="dpad-button" data-dir="left">◀</div>
+      <div id="dpad-right" class="dpad-button" data-dir="right">▶</div>
     </div>
 
     <div id="overlay">
-      <button id="toggle-controls">Full Ctrl</button>
-      <button id="start-btn">Start</button>
-      <div id="status">Tap Start to play! Swipe or use buttons.</div>
+      <button id="start-btn">Start Game</button>
+      <div id="status">Tap Start to begin Level 1!</div>
     </div>
 
-    <div id="credit">Pac-like demo • Better mobile fit • Touch/swipe/keyboard</div>
+    <div id="game-overlay">
+      <div id="game-message">
+        <h2 id="message-title">Level Complete!</h2>
+        <p id="message-text">Great job! Ready for the next level?</p>
+        <button id="continue-btn">Continue</button>
+      </div>
+    </div>
+
+    <div id="credit">Pac-like • 10 Levels • Enemies • Mobile friendly</div>
   </div>
 
   <script>
-    /* Inline JS - Updated for better control fit */
-
     const canvas = document.getElementById('game-canvas');
     const ctx = canvas.getContext('2d');
 
-    // Virtual grid (tile-based)
     const COLS = 19;
     const ROWS = 21;
     const TILE = 16;
     const VIRTUAL_W = COLS * TILE;
     const VIRTUAL_H = ROWS * TILE;
 
-    // Generate simple map
-    const map = new Array(ROWS).fill(0).map((_, r) => {
-      return new Array(COLS).fill(0).map((_, c) => {
-        if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) return 1; // wall
-        if ((r % 4 === 0) && (c % 4 === 0)) return 1;
-        return 2; // pellet
+    // Game state
+    let gameRunning = false;
+    let currentLevel = 1;
+    let score = 0;
+    let lives = 3;
+    let pelletsRemaining = 0;
+
+    // Generate map
+    function generateMap() {
+      const newMap = new Array(ROWS).fill(0).map((_, r) => {
+        return new Array(COLS).fill(0).map((_, c) => {
+          if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) return 1; // walls
+          if ((r % 4 === 0) && (c % 4 === 0)) return 1; // internal walls
+          return 2; // pellets
+        });
       });
-    });
+      
+      // Count pellets
+      pelletsRemaining = 0;
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (newMap[r][c] === 2) pelletsRemaining++;
+        }
+      }
+      
+      return newMap;
+    }
+
+    let map = generateMap();
 
     // Player
     const player = {
@@ -211,11 +222,57 @@
       speed: 80,
     };
 
-    // Game state
-    let gameRunning = false;
-    let score = 0;
+    // Ghost colors and behaviors
+    const ghostColors = ['#ff0000', '#ffb8ff', '#00ffff', '#ffb852'];
+    const ghostBehaviors = ['chase', 'ambush', 'patrol', 'random'];
 
-    // Canvas resize (improved for landscape/mobile)
+    // Ghosts array
+    let ghosts = [];
+
+    function createGhost(index, level) {
+      const startPositions = [
+        {x: TILE * (COLS - 2.5), y: TILE * 1.5},
+        {x: TILE * (COLS - 2.5), y: TILE * (ROWS - 2.5)},
+        {x: TILE * 1.5, y: TILE * (ROWS - 2.5)},
+        {x: TILE * (COLS / 2), y: TILE * (ROWS / 2)}
+      ];
+      
+      const baseSpeed = 60 + (level * 8); // Speed increases with level
+      
+      return {
+        x: startPositions[index % 4].x,
+        y: startPositions[index % 4].y,
+        radius: TILE * 0.4,
+        dir: ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)],
+        speed: baseSpeed,
+        color: ghostColors[index % 4],
+        behavior: ghostBehaviors[index % 4],
+        changeTimer: 0,
+        targetX: 0,
+        targetY: 0
+      };
+    }
+
+    function initializeLevel(level) {
+      // Reset map
+      map = generateMap();
+      
+      // Reset player
+      player.x = TILE * 1.5;
+      player.y = TILE * 1.5;
+      player.dir = null;
+      player.nextDir = null;
+      
+      // Create ghosts based on level
+      ghosts = [];
+      const numGhosts = Math.min(4, Math.floor(level / 2) + 1); // 1-4 ghosts
+      for (let i = 0; i < numGhosts; i++) {
+        ghosts.push(createGhost(i, level));
+      }
+      
+      document.getElementById('status').textContent = `Level ${level} • Lives: ${lives} • Score: ${score}`;
+    }
+
     function resizeCanvas() {
       const scale = Math.min((window.innerWidth * 0.95) / VIRTUAL_W, (window.innerHeight * 0.95) / VIRTUAL_H);
       const displayW = Math.floor(VIRTUAL_W * scale);
@@ -233,20 +290,18 @@
     window.addEventListener('orientationchange', () => setTimeout(resizeCanvas, 100));
     resizeCanvas();
 
-    // Input handling (same as before, but added action buttons)
+    // Input handling
     const keys = {};
     window.addEventListener('keydown', e => {
       const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
       if (mapKey) { keys[mapKey] = true; e.preventDefault(); }
-      if (e.key === ' ') { restartGame(); e.preventDefault(); } // Space for restart
     });
     window.addEventListener('keyup', e => {
       const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
       if (mapKey) keys[mapKey] = false;
     });
 
-    // Touch buttons (D-pad)
-    document.querySelectorAll('#touch-controls .dir').forEach(btn => {
+    document.querySelectorAll('.dpad-button').forEach(btn => {
       const dir = btn.dataset.dir;
       btn.addEventListener('touchstart', e => { keys[dir] = true; e.preventDefault(); }, {passive:false});
       btn.addEventListener('touchend', e => { keys[dir] = false; e.preventDefault(); }, {passive:false});
@@ -254,21 +309,9 @@
       btn.addEventListener('mouseup', e => { keys[dir] = false; e.preventDefault(); });
     });
 
-    // Full controls actions
-    document.getElementById('l-btn').addEventListener('click', () => keys.left = true, setTimeout(() => keys.left = false, 100));
-    document.getElementById('r-btn').addEventListener('click', () => keys.right = true, setTimeout(() => keys.right = false, 100));
-    document.getElementById('a-btn').addEventListener('click', restartGame);
-    document.getElementById('b-btn').addEventListener('click', () => gameRunning = !gameRunning); // Pause/unpause
-
-    // Toggle full controls
-    document.getElementById('toggle-controls').addEventListener('click', () => {
-      const full = document.getElementById('full-controls');
-      full.style.display = full.style.display === 'none' ? 'flex' : 'none';
-    });
-
-    // Simple swipe (improved threshold for mobile)
+    // Swipe detection
     (function addSwipe(el = document.body) {
-      let sx=0, sy=0, threshold=30; // Slightly higher for accuracy
+      let sx=0, sy=0, threshold=30;
       el.addEventListener('touchstart', e => { const t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY; }, {passive:true});
       el.addEventListener('touchend', e => {
         const t = e.changedTouches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
@@ -282,7 +325,6 @@
       }, {passive:true});
     })();
 
-    // Utils (tileAt, collides) - same as before
     function tileAt(c, r) {
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return 1;
       return map[r][c];
@@ -301,19 +343,100 @@
       return false;
     }
 
-    // Game loop
+    function distance(x1, y1, x2, y2) {
+      return Math.sqrt((x2-x1)*(x2-x1) + (y2-y1)*(y2-y1));
+    }
+
+    function updateGhost(ghost, dt) {
+      ghost.changeTimer -= dt;
+      
+      // AI behavior based on ghost type and level difficulty
+      const aggressiveness = Math.min(1, currentLevel / 10); // More aggressive at higher levels
+      
+      if (ghost.changeTimer <= 0) {
+        ghost.changeTimer = 1 + Math.random() * 2; // Change direction every 1-3 seconds
+        
+        switch (ghost.behavior) {
+          case 'chase':
+            // Chase player directly
+            if (player.x > ghost.x) ghost.dir = 'right';
+            else if (player.x < ghost.x) ghost.dir = 'left';
+            else if (player.y > ghost.y) ghost.dir = 'down';
+            else ghost.dir = 'up';
+            break;
+            
+          case 'ambush':
+            // Try to get ahead of player
+            let targetX = player.x;
+            let targetY = player.y;
+            if (player.dir === 'up') targetY -= TILE * 4;
+            else if (player.dir === 'down') targetY += TILE * 4;
+            else if (player.dir === 'left') targetX -= TILE * 4;
+            else if (player.dir === 'right') targetX += TILE * 4;
+            
+            if (targetX > ghost.x) ghost.dir = 'right';
+            else if (targetX < ghost.x) ghost.dir = 'left';
+            else if (targetY > ghost.y) ghost.dir = 'down';
+            else ghost.dir = 'up';
+            break;
+            
+          case 'patrol':
+            // Random movement with slight bias toward player
+            if (Math.random() < 0.3 + aggressiveness * 0.4) {
+              // Move toward player
+              if (Math.abs(player.x - ghost.x) > Math.abs(player.y - ghost.y)) {
+                ghost.dir = player.x > ghost.x ? 'right' : 'left';
+              } else {
+                ghost.dir = player.y > ghost.y ? 'down' : 'up';
+              }
+            } else {
+              // Random movement
+              ghost.dir = ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)];
+            }
+            break;
+            
+          case 'random':
+            // Mostly random with increasing player focus at higher levels
+            if (Math.random() < aggressiveness * 0.5) {
+              if (player.x > ghost.x) ghost.dir = 'right';
+              else if (player.x < ghost.x) ghost.dir = 'left';
+              else if (player.y > ghost.y) ghost.dir = 'down';
+              else ghost.dir = 'up';
+            } else {
+              ghost.dir = ['up', 'down', 'left', 'right'][Math.floor(Math.random() * 4)];
+            }
+            break;
+        }
+      }
+      
+      // Move ghost
+      const vx = ghost.dir === 'left' ? -1 : ghost.dir === 'right' ? 1 : 0;
+      const vy = ghost.dir === 'up' ? -1 : ghost.dir === 'down' ? 1 : 0;
+      const nx = ghost.x + vx * ghost.speed * dt;
+      const ny = ghost.y + vy * ghost.speed * dt;
+      
+      if (!collides(nx, ny, ghost.radius - 1)) {
+        ghost.x = nx;
+        ghost.y = ny;
+      } else {
+        // Hit wall, change direction
+        ghost.changeTimer = 0;
+      }
+    }
+
     let last = performance.now();
     function step(now) {
-      if (!gameRunning) return;
-      const dt = Math.min(0.05, (now - last) / 1000);
-      last = now;
-      update(dt);
-      render();
+      if (gameRunning) {
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        update(dt);
+        render();
+      }
       requestAnimationFrame(step);
     }
 
-    // Update (added scoring)
     function update(dt) {
+      // Player movement
       const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
       if (desire) player.nextDir = desire;
 
@@ -341,22 +464,69 @@
         }
       }
 
-      // Eat pellets & score
+      // Eat pellets
       const col = Math.floor(player.x / TILE);
       const row = Math.floor(player.y / TILE);
       if (map[row] && map[row][col] === 2) {
         map[row][col] = 0;
-        score += 10;
+        score += 10 * currentLevel; // More points at higher levels
+        pelletsRemaining--;
+        
+        if (pelletsRemaining === 0) {
+          // Level complete!
+          gameRunning = false;
+          if (currentLevel >= 10) {
+            showGameMessage('🎉 You Win! 🎉', 'Congratulations! You completed all 10 levels!', 'Play Again', () => {
+              currentLevel = 1;
+              lives = 3;
+              score = 0;
+              startGame();
+            });
+          } else {
+            showGameMessage('Level Complete!', `Great job! Level ${currentLevel + 1} awaits!`, 'Next Level', () => {
+              currentLevel++;
+              initializeLevel(currentLevel);
+              startGame();
+            });
+          }
+        }
       }
+
+      // Update ghosts
+      ghosts.forEach(ghost => updateGhost(ghost, dt));
+
+      // Check ghost collisions
+      ghosts.forEach(ghost => {
+        if (distance(player.x, player.y, ghost.x, ghost.y) < player.radius + ghost.radius - 2) {
+          // Player caught by ghost!
+          lives--;
+          if (lives <= 0) {
+            // Game over
+            gameRunning = false;
+            showGameMessage('Game Over!', `Final Score: ${score}`, 'Restart', () => {
+              currentLevel = 1;
+              lives = 3;
+              score = 0;
+              startGame();
+            });
+          } else {
+            // Respawn player
+            player.x = TILE * 1.5;
+            player.y = TILE * 1.5;
+            player.dir = null;
+            player.nextDir = null;
+            document.getElementById('status').textContent = `Level ${currentLevel} • Lives: ${lives} • Score: ${score}`;
+          }
+        }
+      });
     }
 
-    // Render (added score display)
     function render() {
       ctx.clearRect(0, 0, VIRTUAL_W, VIRTUAL_H);
-
       ctx.fillStyle = '#05102b';
       ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
 
+      // Draw map
       for (let r = 0; r < ROWS; r++) {
         for (let c = 0; c < COLS; c++) {
           const t = map[r][c];
@@ -375,7 +545,28 @@
         }
       }
 
-      // Player
+      // Draw ghosts
+      ghosts.forEach(ghost => {
+        ctx.fillStyle = ghost.color;
+        ctx.beginPath();
+        ctx.arc(ghost.x, ghost.y, ghost.radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Ghost eyes
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(ghost.x - 4, ghost.y - 3, 2, 0, Math.PI * 2);
+        ctx.arc(ghost.x + 4, ghost.y - 3, 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(ghost.x - 4, ghost.y - 3, 1, 0, Math.PI * 2);
+        ctx.arc(ghost.x + 4, ghost.y - 3, 1, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw player
       ctx.save();
       ctx.translate(player.x, player.y);
       ctx.fillStyle = '#ffcc00';
@@ -394,11 +585,14 @@
       ctx.fill();
       ctx.restore();
 
-      // Score overlay on canvas
+      // HUD
       ctx.fillStyle = '#fff';
-      ctx.font = 'bold 20px Arial';
+      ctx.font = 'bold 16px Arial';
       ctx.textAlign = 'left';
-      ctx.fillText(`Score: ${score}`, 10, 25);
+      ctx.fillText(`Level: ${currentLevel}`, 10, 20);
+      ctx.fillText(`Score: ${score}`, 10, 40);
+      ctx.fillText(`Lives: ${lives}`, 10, 60);
+      ctx.fillText(`Pellets: ${pelletsRemaining}`, 10, 80);
     }
 
     function roundRect(ctx, x, y, w, h, r) {
@@ -411,32 +605,32 @@
       ctx.closePath();
     }
 
-    function restartGame() {
-      player.x = TILE * 1.5; player.y = TILE * 1.5; player.dir = null; player.nextDir = null;
-      score = 0;
-      // Reset pellets (simple regen)
-      for (let r = 0; r < ROWS; r++) {
-        for (let c = 0; c < COLS; c++) {
-          if (map[r][c] !== 1) map[r][c] = 2;
-        }
-      }
-      document.getElementById('status').textContent = `Restarted! Score: ${score}`;
+    function showGameMessage(title, text, buttonText, callback) {
+      document.getElementById('message-title').textContent = title;
+      document.getElementById('message-text').textContent = text;
+      document.getElementById('continue-btn').textContent = buttonText;
+      document.getElementById('game-overlay').style.display = 'flex';
+      
+      document.getElementById('continue-btn').onclick = () => {
+        document.getElementById('game-overlay').style.display = 'none';
+        callback();
+      };
     }
 
-    // Start button
-    document.getElementById('start-btn').addEventListener('click', () => {
+    function startGame() {
+      initializeLevel(currentLevel);
       gameRunning = true;
       last = performance.now();
       requestAnimationFrame(step);
-      document.getElementById('status').textContent = 'Playing! Eat pellets for score.';
       document.getElementById('start-btn').style.display = 'none';
-      document.getElementById('toggle-controls').style.display = 'block';
-    });
+    }
 
-    // Auto-setup
+    document.getElementById('start-btn').addEventListener('click', startGame);
+
     window.addEventListener('load', () => {
       resizeCanvas();
-      document.getElementById('status').textContent = 'Tap Start to play! Controls fit better now.';
+      initializeLevel(1);
+      render();
     });
   </script>
 </body>
