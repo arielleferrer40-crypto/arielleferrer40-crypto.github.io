@@ -1,229 +1,368 @@
-/* Minimal responsive Pac-like starter
-   - Virtual grid with scaling to fit viewport
-   - Basic movement with collisions
-   - Touch and keyboard controls
-*/
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Pac-like Mobile Game</title>
+  <style>
+    :root{
+      --bg: #07102b;
+      --panel: rgba(255,255,255,0.06);
+      --accent: #ffcc00;
+      --muted: rgba(255,255,255,0.8);
+      --control-size: 56px;
+    }
 
-(() => {
-  const canvas = document.getElementById('game-canvas');
-  const ctx = canvas.getContext('2d');
+    html,body{
+      height:100%;
+      margin:0;
+      background:var(--bg);
+      color:#fff;
+      font-family:system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      -webkit-font-smoothing:antialiased;
+      -webkit-tap-highlight-color: transparent;
+    }
 
-  // Virtual grid size (tiles)
-  const COLS = 19;
-  const ROWS = 21;
-  const TILE = 16; // virtual tile px
-  const VIRTUAL_W = COLS * TILE;
-  const VIRTUAL_H = ROWS * TILE;
+    #game-root{
+      height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+      padding: env(safe-area-inset);
+      box-sizing:border-box;
+    }
 
-  // Simple map: 0 = empty, 1 = wall, 2 = pellet
-  // For brevity: generate a frame of walls and pellets for interior
-  const map = new Array(ROWS).fill(0).map((_, r) => {
-    return new Array(COLS).fill(2).map((_, c) => {
-      if (r === 0 || r === ROWS-1 || c === 0 || c === COLS-1) return 1;
-      if ((r % 4 === 0) && (c % 4 === 0)) return 1;
-      return 2;
+    /* Canvas scales but keeps aspect ratio */
+    #game-canvas{
+      background: linear-gradient(180deg,#05102b,#07132f);
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      max-width: 100%;
+      max-height: 100%;
+      display:block;
+    }
+
+    /* Touch controls - bottom-left */
+    #touch-controls{
+      position: absolute;
+      left:12px;
+      bottom:12px;
+      display:grid;
+      grid-template-columns: var(--control-size) var(--control-size);
+      gap:10px;
+      z-index:10;
+      user-select:none;
+      touch-action:none;
+    }
+
+    #touch-controls .dir{
+      width:var(--control-size);
+      height:var(--control-size);
+      border-radius:12px;
+      border:none;
+      background:var(--panel);
+      color:var(--accent);
+      font-weight:800;
+      font-size:20px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      -webkit-user-select:none;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.45);
+    }
+
+    /* Top-right overlay */
+    #overlay{
+      position:absolute;
+      right:12px;
+      top:12px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      z-index:10;
+      align-items:flex-end;
+    }
+
+    #start-btn{
+      padding:8px 12px;
+      border-radius:10px;
+      border:none;
+      background:var(--accent);
+      color:#111;
+      font-weight:800;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+    }
+
+    #status{
+      font-size:13px;
+      opacity:0.95;
+      text-align:right;
+      color:var(--muted);
+    }
+
+    /* Small credit/footer */
+    #credit{
+      position:absolute;
+      left:50%;
+      transform:translateX(-50%);
+      bottom:8px;
+      font-size:12px;
+      color:rgba(255,255,255,0.6);
+      z-index:5;
+    }
+
+    /* Make controls slightly smaller on small viewports */
+    @media (max-width:420px){
+      :root { --control-size: 48px; }
+      #touch-controls { gap:8px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="game-root">
+    <canvas id="game-canvas" aria-label="Game canvas"></canvas>
+
+    <!-- On-screen controls -->
+    <div id="touch-controls" aria-hidden="false">
+      <button class="dir up" data-dir="up" aria-label="Up">▲</button>
+      <button class="dir left" data-dir="left" aria-label="Left">◀</button>
+      <button class="dir right" data-dir="right" aria-label="Right">▶</button>
+      <button class="dir down" data-dir="down" aria-label="Down">▼</button>
+    </div>
+
+    <div id="overlay" aria-hidden="false">
+      <button id="start-btn">Start</button>
+      <div id="status">Tap Start to play!</div>
+    </div>
+
+    <div id="credit">Pac-like demo • Mobile friendly • Touch/swipe/keyboard</div>
+  </div>
+
+  <script>
+    /* Inline JS - Simple mobile-friendly Pac-like game
+       Responsive, touch/swipe/keyboard controls, pellets, collisions */
+
+    const canvas = document.getElementById('game-canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Virtual grid (tile-based)
+    const COLS = 19;
+    const ROWS = 21;
+    const TILE = 16;                 // virtual pixel size
+    const VIRTUAL_W = COLS * TILE;
+    const VIRTUAL_H = ROWS * TILE;
+
+    // Generate simple map (frame walls + scattered walls + pellets)
+    const map = new Array(ROWS).fill(0).map((_, r) => {
+      return new Array(COLS).fill(0).map((_, c) => {
+        if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) return 1; // wall
+        if ((r % 4 === 0) && (c % 4 === 0)) return 1;
+        return 2; // pellet
+      });
     });
-  });
 
-  // Player state
-  const player = {
-    x: TILE * 1.5,
-    y: TILE * 1.5,
-    radius: TILE * 0.45,
-    dir: null,           // 'up','down','left','right'
-    nextDir: null,
-    speed: 80,           // virtual pixels per second
-  };
+    // Player
+    const player = {
+      x: TILE * 1.5,
+      y: TILE * 1.5,
+      radius: TILE * 0.45,
+      dir: null,
+      nextDir: null,
+      speed: 80, // virtual px / s
+    };
 
-  // Resize and scaling
-  function resizeCanvas() {
-    // compute scale so game fits while preserving aspect ratio
-    const scale = Math.min(window.innerWidth / VIRTUAL_W, window.innerHeight / VIRTUAL_H);
-    const displayW = Math.floor(VIRTUAL_W * scale);
-    const displayH = Math.floor(VIRTUAL_H * scale);
+    // Canvas resize & DPR handling (responsive)
+    function resizeCanvas() {
+      const scale = Math.min(window.innerWidth / VIRTUAL_W, window.innerHeight / VIRTUAL_H);
+      const displayW = Math.floor(VIRTUAL_W * scale);
+      const displayH = Math.floor(VIRTUAL_H * scale);
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
 
-    // use devicePixelRatio for crisp rendering
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvas.style.width = displayW + 'px';
-    canvas.style.height = displayH + 'px';
-    canvas.width = Math.floor(displayW * dpr);
-    canvas.height = Math.floor(displayH * dpr);
+      canvas.style.width = displayW + 'px';
+      canvas.style.height = displayH + 'px';
+      canvas.width = Math.floor(displayW * dpr);
+      canvas.height = Math.floor(displayH * dpr);
 
-    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0); // scale drawing to virtual coords
-  }
-  window.addEventListener('resize', resizeCanvas);
-  resizeCanvas();
-
-  // Input
-  const keys = {};
-  window.addEventListener('keydown', e => {
-    const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
-    if (mapKey) { keys[mapKey] = true; e.preventDefault(); }
-  });
-  window.addEventListener('keyup', e => {
-    const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
-    if (mapKey) keys[mapKey] = false;
-  });
-
-  // Touch controls (on-screen buttons)
-  document.querySelectorAll('#touch-controls .dir').forEach(btn => {
-    const dir = btn.dataset.dir;
-    btn.addEventListener('touchstart', e => { keys[dir] = true; e.preventDefault(); });
-    btn.addEventListener('touchend', e => { keys[dir] = false; e.preventDefault(); });
-    btn.addEventListener('mousedown', e => { keys[dir] = true; e.preventDefault(); });
-    btn.addEventListener('mouseup', e => { keys[dir] = false; e.preventDefault(); });
-  });
-
-  // Swipe support (simple)
-  (function addSwipe(el = document.body) {
-    let sx=0, sy=0, threshold=20;
-    el.addEventListener('touchstart', e=>{ const t=e.changedTouches[0]; sx=t.clientX; sy=t.clientY; }, {passive:true});
-    el.addEventListener('touchend', e=>{
-      const t=e.changedTouches[0]; const dx=t.clientX - sx; const dy=t.clientY - sy;
-      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > threshold) {
-        keys.left = dx<0; keys.right = dx>0;
-        setTimeout(()=>{ keys.left = keys.right = false; }, 120);
-      } else if (Math.abs(dy) > threshold) {
-        keys.up = dy<0; keys.down = dy>0;
-        setTimeout(()=>{ keys.up = keys.down = false; }, 120);
-      }
-    }, {passive:true});
-  })();
-
-  // Utility: check tile at (col,row)
-  function tileAtColRow(col,row){ return (row<0||row>=ROWS||col<0||col>=COLS) ? 1 : map[row][col]; }
-
-  // Collision test for proposed position (circle vs grid walls)
-  function collides(x,y,r) {
-    const left = Math.floor((x - r) / TILE);
-    const right = Math.floor((x + r) / TILE);
-    const top = Math.floor((y - r) / TILE);
-    const bottom = Math.floor((y + r) / TILE);
-    for (let rr=top; rr<=bottom; rr++){
-      for (let cc=left; cc<=right; cc++){
-        if (tileAtColRow(cc,rr) === 1) return true;
-      }
+      ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
     }
-    return false;
-  }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
 
-  // Game loop
-  let last = performance.now();
-  function step(now) {
-    const dt = Math.min(0.05, (now - last) / 1000);
-    last = now;
-    update(dt);
-    render();
-    requestAnimationFrame(step);
-  }
+    // Input handling
+    const keys = {};
+    window.addEventListener('keydown', e => {
+      const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
+      if (mapKey) { keys[mapKey] = true; e.preventDefault(); }
+    });
+    window.addEventListener('keyup', e => {
+      const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
+      if (mapKey) keys[mapKey] = false;
+    });
 
-  // Update player movement
-  function update(dt) {
-    // Resolve desired direction from keys
-    const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
-    if (desire) player.nextDir = desire;
-    // apply nextDir if possible (snap to grid)
-    if (player.nextDir) {
-      const dir = player.nextDir;
-      const vx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
-      const vy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
-      const speed = player.speed;
-      const nx = player.x + vx * speed * dt;
-      const ny = player.y + vy * speed * dt;
-      if (!collides(nx, ny, player.radius - 1)) {
-        player.dir = player.nextDir;
-        player.nextDir = null;
-      }
+    // Touch buttons
+    document.querySelectorAll('#touch-controls .dir').forEach(btn => {
+      const dir = btn.dataset.dir;
+      btn.addEventListener('touchstart', e => { keys[dir] = true; e.preventDefault(); }, {passive:false});
+      btn.addEventListener('touchend', e => { keys[dir] = false; e.preventDefault(); }, {passive:false});
+      btn.addEventListener('mousedown', e => { keys[dir] = true; e.preventDefault(); });
+      btn.addEventListener('mouseup', e => { keys[dir] = false; e.preventDefault(); });
+    });
+
+    // Simple swipe detection
+    (function addSwipe(el = document.body) {
+      let sx=0, sy=0, threshold=20;
+      el.addEventListener('touchstart', e => { const t = e.changedTouches[0]; sx = t.clientX; sy = t.clientY; }, {passive:true});
+      el.addEventListener('touchend', e => {
+        const t = e.changedTouches[0]; const dx = t.clientX - sx; const dy = t.clientY - sy;
+        if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > threshold) {
+          keys.left = dx < 0; keys.right = dx > 0;
+          setTimeout(()=>{ keys.left = keys.right = false; }, 120);
+        } else if (Math.abs(dy) > threshold) {
+          keys.up = dy < 0; keys.down = dy > 0;
+          setTimeout(()=>{ keys.up = keys.down = false; }, 120);
+        }
+      }, {passive:true});
+    })();
+
+    // Utility: tile lookup
+    function tileAt(c, r) {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return 1;
+      return map[r][c];
     }
 
-    // Move according to current dir
-    if (player.dir) {
-      const vx = player.dir === 'left' ? -1 : player.dir === 'right' ? 1 : 0;
-      const vy = player.dir === 'up' ? -1 : player.dir === 'down' ? 1 : 0;
-      const nx = player.x + vx * player.speed * dt;
-      const ny = player.y + vy * player.speed * dt;
-      if (!collides(nx, ny, player.radius - 1)) {
-        player.x = nx; player.y = ny;
-      } else {
-        // stop if colliding
-        player.dir = null;
-      }
-    }
-
-    // Eat pellets if present
-    const col = Math.floor(player.x / TILE);
-    const row = Math.floor(player.y / TILE);
-    if (map[row] && map[row][col] === 2) map[row][col] = 0;
-  }
-
-  // Render
-  function render() {
-    ctx.clearRect(0,0,VIRTUAL_W, VIRTUAL_H);
-
-    // Background
-    ctx.fillStyle = '#05102b';
-    ctx.fillRect(0,0,VIRTUAL_W, VIRTUAL_H);
-
-    // Draw map
-    for (let r=0; r<ROWS; r++){
-      for (let c=0; c<COLS; c++){
-        const t = map[r][c];
-        const x = c * TILE;
-        const y = r * TILE;
-        if (t === 1) {
-          ctx.fillStyle = '#003366';
-          roundRect(ctx, x+1, y+1, TILE-2, TILE-2, 3);
-          ctx.fill();
-        } else if (t === 2) {
-          ctx.fillStyle = '#ffd966';
-          const cx = x + TILE/2, cy = y + TILE/2;
-          ctx.beginPath();
-          ctx.arc(cx, cy, Math.max(1, TILE*0.12), 0, Math.PI*2);
-          ctx.fill();
+    // Collision: circle vs tile walls
+    function collides(x, y, r) {
+      const left = Math.floor((x - r) / TILE);
+      const right = Math.floor((x + r) / TILE);
+      const top = Math.floor((y - r) / TILE);
+      const bottom = Math.floor((y + r) / TILE);
+      for (let rr = top; rr <= bottom; rr++) {
+        for (let cc = left; cc <= right; cc++) {
+          if (tileAt(cc, rr) === 1) return true;
         }
       }
+      return false;
     }
 
-    // Draw player (simple circle with mouth)
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.fillStyle = '#ffcc00';
-    // simple chomping animation based on time
-    const t = performance.now() / 200;
-    const mouth = Math.abs(Math.sin(t)) * 0.3 + 0.05;
-    let ang = 0;
-    if (player.dir === 'left') ang = Math.PI;
-    else if (player.dir === 'up') ang = -Math.PI/2;
-    else if (player.dir === 'down') ang = Math.PI/2;
-    const start = mouth * Math.PI + ang;
-    const end = (2 - mouth) * Math.PI + ang;
-    ctx.beginPath();
-    ctx.moveTo(0,0);
-    ctx.arc(0,0, player.radius, start, end, false);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
+    // Game loop
+    let last = performance.now();
+    function step(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      update(dt);
+      render();
+      requestAnimationFrame(step);
+    }
 
-  // util: rounded rect
-  function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
+    // Update
+    function update(dt) {
+      const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
+      if (desire) player.nextDir = desire;
 
-  // Controls for start button
-  document.getElementById('start-btn').addEventListener('click', ()=> {
-    player.x = TILE*1.5; player.y = TILE*1.5; player.dir = null;
-    last = performance.now();
-    requestAnimationFrame(step);
-    document.getElementById('status').textContent = 'Playing';
-  });
+      if (player.nextDir) {
+        const dir = player.nextDir;
+        const vx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+        const vy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
+        const nx = player.x + vx * player.speed * dt;
+        const ny = player.y + vy * player.speed * dt;
+        if (!collides(nx, ny, player.radius - 1)) {
+          player.dir = player.nextDir;
+          player.nextDir = null;
+        }
+      }
 
-  // Start automatically
-  document.getElementById('start-btn').click();
-})();
+      if (player.dir) {
+        const vx = player.dir === 'left' ? -1 : player.dir === 'right' ? 1 : 0;
+        const vy = player.dir === 'up' ? -1 : player.dir === 'down' ? 1 : 0;
+        const nx = player.x + vx * player.speed * dt;
+        const ny = player.y + vy * player.speed * dt;
+        if (!collides(nx, ny, player.radius - 1)) {
+          player.x = nx; player.y = ny;
+        } else {
+          player.dir = null;
+        }
+      }
+
+      // Eat pellets
+      const col = Math.floor(player.x / TILE);
+      const row = Math.floor(player.y / TILE);
+      if (map[row] && map[row][col] === 2) {
+        map[row][col] = 0;
+      }
+    }
+
+    // Render
+    function render() {
+      ctx.clearRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+
+      // background
+      ctx.fillStyle = '#05102b';
+      ctx.fillRect(0, 0, VIRTUAL_W, VIRTUAL_H);
+
+      // tiles
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const t = map[r][c];
+          const x = c * TILE, y = r * TILE;
+          if (t === 1) {
+            ctx.fillStyle = '#003b66';
+            roundRect(ctx, x + 1, y + 1, TILE - 2, TILE - 2, 3);
+            ctx.fill();
+          } else if (t === 2) {
+            ctx.fillStyle = '#ffd966';
+            const cx = x + TILE / 2, cy = y + TILE / 2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, Math.max(1, TILE * 0.12), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      // player (chomping circle)
+      ctx.save();
+      ctx.translate(player.x, player.y);
+      ctx.fillStyle = '#ffcc00';
+      const t = performance.now() / 200;
+      const mouth = Math.abs(Math.sin(t)) * 0.3 + 0.05;
+      let ang = 0;
+      if (player.dir === 'left') ang = Math.PI;
+      else if (player.dir === 'up') ang = -Math.PI / 2;
+      else if (player.dir === 'down') ang = Math.PI / 2;
+      const start = mouth * Math.PI + ang;
+      const end = (2 - mouth) * Math.PI + ang;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, player.radius, start, end, false);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // rounded rect util
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    // Start controls
+    document.getElementById('start-btn').addEventListener('click', () => {
+      player.x = TILE * 1.5; player.y = TILE * 1.5; player.dir = null; player.nextDir = null;
+      last = performance.now();
+      requestAnimationFrame(step);
+      document.getElementById('status').textContent = 'Playing! Eat all pellets.';
+      document.getElementById('start-btn').style.display = 'none';
+    });
+
+    // Auto-start on load (tap Start first for mobile)
+    window.addEventListener('load', () => {
+      resizeCanvas();
+    });
+  </script>
+</body>
+</html>
