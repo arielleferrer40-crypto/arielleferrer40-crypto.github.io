@@ -1,705 +1,229 @@
-class PacManGame {
-    constructor() {
-        this.canvas = document.getElementById('gameCanvas');
-        this.ctx = this.canvas.getContext('2d');
-        this.scoreElement = document.getElementById('score');
-        this.livesElement = document.getElementById('lives');
-        this.levelElement = document.getElementById('level');
-        this.gameOverElement = document.getElementById('gameOver');
-        this.gameOverText = document.getElementById('gameOverText');
-        this.finalScoreElement = document.getElementById('finalScore');
-        this.instructionsElement = document.getElementById('instructions');
-        
-        this.resizeCanvas();
-        window.addEventListener('resize', () => this.resizeCanvas());
-        
-        // Game constants
-        this.TILE_SIZE = 20;
-        this.MAZE_WIDTH = 19;
-        this.MAZE_HEIGHT = 22;
-        this.PACMAN_SPEED = 2.5;
-        this.GHOST_SPEED = 1.8;
-        
-        // Game state
-        this.score = 0;
-        this.lives = 3;
-        this.level = 1;
-        this.gameRunning = false;
-        this.dotsEaten = 0;
-        this.totalDots = 0;
-        this.frightenedTimer = 0;
-        this.FRIGHTENED_DURATION = 600; // frames
-        
-        // Input
-        this.keys = {};
-        this.currentDirection = 'right';
-        this.nextDirection = 'right';
-        this.touchStart = { x: 0, y: 0 };
-        
-        this.initMaze();
-        this.initGameObjects();
-        this.setupControls();
-        this.showInstructions();
-    }
-    
-    resizeCanvas() {
-        const maxWidth = window.innerWidth - 40;
-        const maxHeight = window.innerHeight * 0.7;
-        const tileCount = Math.min(
-            Math.floor(maxWidth / this.TILE_SIZE),
-            Math.floor(maxHeight / this.TILE_SIZE)
-        );
-        
-        this.TILE_SIZE = Math.floor(Math.min(maxWidth, maxHeight) / Math.max(this.MAZE_WIDTH, this.MAZE_HEIGHT));
-        this.canvas.width = this.MAZE_WIDTH * this.TILE_SIZE;
-        this.canvas.height = this.MAZE_HEIGHT * this.TILE_SIZE;
-        this.canvas.style.maxWidth = '100%';
-        this.canvas.style.maxHeight = '70vh';
-    }
-    
-    initMaze() {
-        // Classic Pac-Man maze layout
-        this.maze = [
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-            [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1],
-            [1,2,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,2,1],
-            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-            [1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,0,1],
-            [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1],
-            [1,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1],
-            [0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0],
-            [1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,1,1,1],
-            [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-            [1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,0,1,1,1],
-            [0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0],
-            [1,1,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,1,1],
-            [1,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,1],
-            [1,2,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,2,1],
-            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-            [1,1,1,1,0,1,1,1,0,1,1,0,1,1,1,0,1,1,1],
-            [1,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,1],
-            [1,0,1,1,0,1,0,1,1,1,1,1,0,1,0,1,1,0,1],
-            [1,0,0,0,2,0,0,0,0,0,0,0,0,0,0,2,0,0,0,1],
-            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-        ];
-        
-        // Count total dots
-        this.totalDots = 0;
-        for (let y = 0; y < this.MAZE_HEIGHT; y++) {
-            for (let x = 0; x < this.MAZE_WIDTH; x++) {
-                if (this.maze[y][x] === 0 || this.maze[y][x] === 2) {
-                    this.totalDots++;
-                }
-            }
-        }
-        
-        // Reset eaten dots
-        this.dotsEaten = 0;
-        for (let y = 0; y < this.MAZE_HEIGHT; y++) {
-            for (let x = 0; x < this.MAZE_WIDTH; x++) {
-                if (this.maze[y][x] === -1) {
-                    this.maze[y][x] = 0;
-                }
-            }
-        }
-    }
-    
-    initGameObjects() {
-        // Pac-Man starting position
-        this.pacman = {
-            x: 9 * this.TILE_SIZE + this.TILE_SIZE / 2,
-            y: 15 * this.TILE_SIZE + this.TILE_SIZE / 2,
-            dir: 'right',
-            nextDir: 'right',
-            mouthOpen: true,
-            speed: this.PACMAN_SPEED
-        };
-        
-        // Ghosts (Blinky, Pinky, Inky, Clyde)
-        this.ghosts = [
-            { // Blinky (Red) - chases directly
-                x: 9 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                y: 9 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                dir: 'left',
-                color: '#ff0000',
-                target: () => ({ x: this.pacman.x, y: this.pacman.y }),
-                frightened: false,
-                speed: this.GHOST_SPEED,
-                homeX: 9 * this.TILE_SIZE,
-                homeY: 9 * this.TILE_SIZE
-            },
-            { // Pinky (Pink) - aims 4 tiles ahead of Pac-Man
-                x: 9 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                y: 10 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                dir: 'up',
-                color: '#ffb8ff',
-                target: () => {
-                    let tx = this.pacman.x, ty = this.pacman.y;
-                    if (this.pacman.dir === 'up') ty -= 4 * this.TILE_SIZE;
-                    else if (this.pacman.dir === 'down') ty += 4 * this.TILE_SIZE;
-                    else if (this.pacman.dir === 'left') tx -= 4 * this.TILE_SIZE;
-                    else tx += 4 * this.TILE_SIZE;
-                    return { x: tx, y: ty };
-                },
-                frightened: false,
-                speed: this.GHOST_SPEED,
-                homeX: 2 * this.TILE_SIZE,
-                homeY: 0
-            },
-            { // Inky (Cyan) - complex targeting
-                x: 10 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                y: 10 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                dir: 'up',
-                color: '#00ffff',
-                target: () => {
-                    // Simplified Inky behavior
-                    let tx = this.pacman.x * 2 - this.ghosts[0].x;
-                    let ty = this.pacman.y * 2 - this.ghosts[0].y;
-                    return { x: tx, y: ty };
-                },
-                frightened: false,
-                speed: this.GHOST_SPEED,
-                homeX: 22 * this.TILE_SIZE,
-                homeY: 0
-            },
-            { // Clyde (Orange) - chases then flees
-                x: 8 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                y: 10 * this.TILE_SIZE + this.TILE_SIZE / 2,
-                dir: 'down',
-                color: '#ffb852',
-                target: () => {
-                    const dist = Math.hypot(
-                        this.pacman.x - this.ghosts[3].x,
-                        this.pacman.y - this.ghosts[3].y
-                    );
-                    if (dist > 8 * this.TILE_SIZE) {
-                        return { x: this.pacman.x, y: this.pacman.y };
-                    } else {
-                        return { x: 0, y: 31 * this.TILE_SIZE }; // Flee to corner
-                    }
-                },
-                frightened: false,
-                speed: this.GHOST_SPEED,
-                homeX: 0,
-                homeY: 31 * this.TILE_SIZE
-            }
-        ];
-        
-        this.gameMode = 'scatter'; // scatter, chase, frightened
-        this.modeTimer = 0;
-        this.modeDurations = [700, 700, 700, 700, 5000, 5000, 5000, 5000]; // frames
-        this.modeIndex = 0;
-    }
-    
-    setupControls() {
-        // Keyboard controls (for desktop testing)
-        document.addEventListener('keydown', (e) => {
-            this.keys[e.key.toLowerCase()] = true;
-            if (e.key.startsWith('Arrow')) {
-                this.setDirection(e.key.replace('Arrow', '').toLowerCase());
-            }
-        });
-        
-        document.addEventListener('keyup', (e) => {
-            this.keys[e.key.toLowerCase()] = false;
-        });
-        
-        // Touch controls - D-pad buttons
-        const controlButtons = document.querySelectorAll('.control-btn');
-        controlButtons.forEach(btn => {
-            btn.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                const direction = btn.dataset.dir;
-                this.setDirection(direction);
-            });
-            
-            btn.addEventListener('mousedown', (e) => {
-                e.preventDefault();
-                const direction = btn.dataset.dir;
-                this.setDirection(direction);
-            });
-        });
-        
-        // Swipe controls on canvas
-        this.canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            const touch = e.touches[0];
-            this.touchStart = {
-                x: touch.clientX,
-                y: touch.clientY
-            };
-        });
-        
-        this.canvas.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-        });
-        
-        this.canvas.addEventListener('touchend', (e) => {
-            e.preventDefault();
-            if (!this.touchStart.x || !this.touchStart.y) return;
-            
-            const touch = e.changedTouches[0];
-            const touchEnd = {
-                x: touch.clientX,
-                y: touch.clientY
-            };
-            
-            const deltaX = touchEnd.x - this.touchStart.x;
-            const deltaY = touchEnd.y - this.touchStart.y;
-            const threshold = 30; // minimum swipe distance
-            
-            if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                if (Math.abs(deltaX) > threshold) {
-                    this.setDirection(deltaX > 0 ? 'right' : 'left');
-                }
-            } else {
-                if (Math.abs(deltaY) > threshold) {
-                    this.setDirection(deltaY > 0 ? 'down' : 'up');
-                }
-            }
-            
-            this.touchStart = { x: 0, y: 0 };
-        });
-        
-        // Prevent scrolling on touch
-        document.addEventListener('touchmove', (e) => {
-            if (e.target === this.canvas) {
-                e.preventDefault();
-            }
-        }, { passive: false });
-    }
-    
-    setDirection(direction) {
-        // Only allow valid direction changes (no 180-degree turns at walls)
-        const opposite = {
-            'up': 'down',
-            'down': 'up',
-            'left': 'right',
-            'right': 'left'
-        };
-        
-        if (direction !== opposite[this.currentDirection]) {
-            this.nextDirection = direction;
-        }
-    }
-    
-    getTile(x, y) {
-        const tileX = Math.floor(x / this.TILE_SIZE);
-        const tileY = Math.floor(y / this.TILE_SIZE);
-        if (tileX < 0 || tileX >= this.MAZE_WIDTH || tileY < 0 || tileY >= this.MAZE_HEIGHT) {
-            return 1; // Wall
-        }
-        return this.maze[tileY][tileX];
-    }
-    
-    canMoveTo(x, y, dir) {
-        const nextX = x + (dir === 'right' ? this.TILE_SIZE : dir === 'left' ? -this.TILE_SIZE : 0);
-        const nextY = y + (dir === 'down' ? this.TILE_SIZE : dir === 'up' ? -this.TILE_SIZE : 0);
-        return this.getTile(nextX, nextY) !== 1;
-    }
-    
-    eatDot(x, y) {
-        const tileX = Math.floor(x / this.TILE_SIZE);
-        const tileY = Math.floor(y / this.TILE_SIZE);
-        
-        if (tileY >= 0 && tileY < this.MAZE_HEIGHT && tileX >= 0 && tileX < this.MAZE_WIDTH) {
-            if (this.maze[tileY][tileX] === 0) {
-                this.maze[tileY][tileX] = -1; // Eaten
-                this.score += 10;
-                this.dotsEaten++;
-            } else if (this.maze[tileY][tileX] === 2) {
-                this.maze[tileY][tileX] = -1;
-                this.score += 50;
-                this.dotsEaten++;
-                this.activateFrightenedMode();
-            }
-        }
-    }
-    
-    activateFrightenedMode() {
-        this.gameMode = 'frightened';
-        this.frightenedTimer = this.FRIGHTENED_DURATION;
-        this.ghosts.forEach(ghost => ghost.frightened = true);
-    }
-    
-    updatePacman() {
-        // Try to change direction if possible
-        if (this.nextDirection !== this.currentDirection && 
-            this.canMoveTo(this.pacman.x, this.pacman.y, this.nextDirection)) {
-            this.currentDirection = this.nextDirection;
-        }
-        
-        // Move in current direction if possible
-        let nextX = this.pacman.x;
-        let nextY = this.pacman.y;
-        
-        const speed = this.PACMAN_SPEED;
-        switch (this.currentDirection) {
-            case 'left': 
-                nextX -= speed;
-                if (nextX < 0) nextX = this.canvas.width - this.TILE_SIZE;
-                break;
-            case 'right': 
-                nextX += speed;
-                if (nextX >= this.canvas.width) nextX = 0;
-                break;
-            case 'up': nextY -= speed; break;
-            case 'down': nextY += speed; break;
-        }
-        
-        // Check collision with walls
-        const currentTile = this.getTile(this.pacman.x, this.pacman.y);
-        const nextTileX = Math.floor(nextX / this.TILE_SIZE);
-        const nextTileY = Math.floor(nextY / this.TILE_SIZE);
-        const nextTile = this.maze[nextTileY] ? this.maze[nextTileY][nextTileX] : 1;
-        
-        if (nextTile !== 1) {
-            this.pacman.x = nextX;
-            this.pacman.y = nextY;
-        }
-        
-        // Eat dots
-        if (currentTile === 0 || currentTile === 2) {
-            this.eatDot(this.pacman.x, this.pacman.y);
-        }
-        
-        this.pacman.mouthOpen = !this.pacman.mouthOpen;
-        
-        // Check win condition
-        if (this.dotsEaten >= this.totalDots) {
-            this.nextLevel();
-        }
-    }
-    
-    updateGhost(ghost) {
-        if (this.gameMode === 'frightened') {
-            // Move randomly when frightened
-            const directions = ['up', 'down', 'left', 'right'].filter(d => 
-                d !== this.getOppositeDirection(ghost.dir) && 
-                this.canMoveTo(ghost.x, ghost.y, d)
-            );
-            if (directions.length > 0) {
-                ghost.dir = directions[Math.floor(Math.random() * directions.length)];
-            }
-        } else {
-            // AI targeting
-            const target = ghost.target();
-            ghost.dir = this.findBestDirection(ghost, target.x, target.y);
-        }
-        
-        // Move ghost
-        let nextX = ghost.x;
-        let nextY = ghost.y;
-        const speed = this.gameMode === 'frightened' ? ghost.speed * 0.8 : ghost.speed;
-        
-        switch (ghost.dir) {
-            case 'left': 
-                nextX -= speed;
-                if (nextX < 0) nextX = this.canvas.width - this.TILE_SIZE;
-                break;
-            case 'right': 
-                nextX += speed;
-                if (nextX >= this.canvas.width) nextX = 0;
-                break;
-            case 'up': nextY -= speed; break;
-            case 'down': nextY += speed; break;
-        }
-        
-        if (this.getTile(nextX, nextY) !== 1) {
-            ghost.x = nextX;
-            ghost.y = nextY;
-        }
-        
-        // Check collision with Pac-Man
-        const distance = Math.hypot(ghost.x - this.pacman.x, ghost.y - this.pacman.y);
-        if (distance < this.TILE_SIZE * 0.8) {
-            this.handleGhostCollision(ghost);
-        }
-    }
-    
-    findBestDirection(ghost, targetX, targetY) {
-        const directions = ['up', 'down', 'left', 'right'];
-        let bestDir = ghost.dir;
-        let minDist = Infinity;
-        
-        directions.forEach(dir => {
-            if (dir === this.getOppositeDirection(ghost.dir)) return;
-            
-            let testX = ghost.x;
-            let testY = ghost.y;
-            
-            switch (dir) {
-                case 'left': testX -= this.GHOST_SPEED; break;
-                case 'right': testX += this.GHOST_SPEED; break;
-                case 'up': testY -= this.GHOST_SPEED; break;
-                case 'down': testY += this.GHOST_SPEED; break;
-            }
-            
-            if (this.getTile(testX, testY) !== 1) {
-                const dist = Math.hypot(testX - targetX, testY - targetY);
-                if (dist < minDist) {
-                    minDist = dist;
-                    bestDir = dir;
-                }
-            }
-        });
-        
-        return bestDir;
-    }
-    
-    getOppositeDirection(dir) {
-        const opposites = { 'up': 'down', 'down': 'up', 'left': 'right', 'right': 'left' };
-        return opposites[dir] || dir;
-    }
-    
-    handleGhostCollision(ghost) {
-        if (this.gameMode === 'frightened') {
-            // Eat ghost
-            this.score += 200;
-            ghost.x = ghost.homeX;
-            ghost.y = ghost.homeY;
-            ghost.frightened = false;
-        } else {
-            // Lose life
-            this.lives--;
-            if (this.lives <= 0) {
-                this.gameOver();
-            } else {
-                this.resetPositions();
-            }
-        }
-    }
-    
-    updateGameMode() {
-        this.modeTimer++;
-        
-        if (this.gameMode === 'frightened') {
-            this.frightenedTimer--;
-            if (this.frightenedTimer <= 0) {
-                this.gameMode = 'chase';
-                this.ghosts.forEach(ghost => ghost.frightened = false);
-            }
-        } else {
-            const duration = this.modeDurations[this.modeIndex % this.modeDurations.length];
-            if (this.modeTimer > duration) {
-                this.modeTimer = 0;
-                this.modeIndex++;
-                this.gameMode = this.modeIndex % 2 === 0 ? 'scatter' : 'chase';
-            }
-        }
-    }
-    
-    resetPositions() {
-        this.pacman.x = 9 * this.TILE_SIZE + this.TILE_SIZE / 2;
-        this.pacman.y = 15 * this.TILE_SIZE + this.TILE_SIZE / 2;
-        this.pacman.dir = 'right';
-        this.pacman.nextDir = 'right';
-        
-        this.ghosts.forEach((ghost, i) => {
-            ghost.x = (9 + i - 1) * this.TILE_SIZE + this.TILE_SIZE / 2;
-            ghost.y = 10 * this.TILE_SIZE + this.TILE_SIZE / 2;
-            ghost.frightened = false;
-        });
-    }
-    
-    nextLevel() {
-        this.level++;
-        this.PACMAN_SPEED += 0.2;
-        this.GHOST_SPEED += 0.1;
-        this.initMaze();
-        this.resetPositions();
-        this.gameMode = 'scatter';
-        this.modeTimer = 0;
-        this.modeIndex = 0;
-    }
-    
-    drawMaze() {
-        // Background
-        this.ctx.fillStyle = '#000';
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-        
-        // Walls
-        this.ctx.fillStyle = '#0000ff';
-        for (let y = 0; y < this.MAZE_HEIGHT; y++) {
-            for (let x = 0; x < this.MAZE_WIDTH; x++) {
-                if (this.maze[y][x] === 1) {
-                    this.ctx.fillRect(
-                        x * this.TILE_SIZE, 
-                        y * this.TILE_SIZE, 
-                        this.TILE_SIZE, 
-                        this.TILE_SIZE
-                    );
-                }
-            }
-        }
-        
-        // Dots
-        this.ctx.fillStyle = '#ffb852';
-        for (let y = 0; y < this.MAZE_HEIGHT; y++) {
-            for (let x = 0; x < this.MAZE_WIDTH; x++) {
-                if (this.maze[y][x] === 0) {
-                    const centerX = x * this.TILE_SIZE + this.TILE_SIZE / 2;
-                    const centerY = y * this.TILE_SIZE + this.TILE_SIZE / 2;
-                    this.ctx.beginPath();
-                    this.ctx.arc(centerX, centerY, 2, 0, Math.PI * 2);
-                    this.ctx.fill();
-                } else if (this.maze[y][x] === 2) {
-                    const centerX = x * this.TILE_SIZE + this.TILE_SIZE / 2;
-                    const centerY = y * this.TILE_SIZE + this.TILE_SIZE / 2;
-                    this.ctx.beginPath();
-                    this.ctx.arc(centerX, centerY, 6, 0, Math.PI * 2);
-                    this.ctx.fill();
-                }
-            }
-        }
-    }
-    
-    drawPacman() {
-        this.ctx.fillStyle = '#ffff00';
-        const centerX = this.pacman.x;
-        const centerY = this.pacman.y;
-        const radius = this.TILE_SIZE / 2 - 2;
-        
-        this.ctx.save();
-        this.ctx.translate(centerX, centerY);
-        
-        // Rotate based on direction
-        let rotation = 0;
-        if (this.currentDirection === 'right') rotation = 0;
-        else if (this.currentDirection === 'down') rotation = Math.PI / 2;
-        else if (this.currentDirection === 'left') rotation = Math.PI;
-        else if (this.currentDirection === 'up') rotation = Math.PI * 1.5;
-        
-        this.ctx.rotate(rotation);
-        
-        // Mouth angles
-        let startAngle, endAngle;
-        if (this.pacman.mouthOpen) {
-            startAngle = 0.25 * Math.PI;
-            endAngle = 1.75 * Math.PI;
-        } else {
-            startAngle = 0.1 * Math.PI;
-            endAngle = 1.9 * Math.PI;
-        }
-        
-        this.ctx.beginPath();
-        this.ctx.arc(0, 0, radius, startAngle, endAngle);
-        this.ctx.lineTo(0, 0);
-        this.ctx.fill();
-        
-        this.ctx.restore();
-    }
-    
-    drawGhost(ghost) {
-        const centerX = ghost.x;
-        const centerY = ghost.y;
-        const radius = this.TILE_SIZE / 2 - 2;
-        
-        // Body color
-        const color = ghost.frightened ? '#0000ff' : ghost.color;
-        this.ctx.fillStyle = color;
-        
-        this.ctx.save();
-        this.ctx.translate(centerX, centerY);
-        
-        // Body
-        this.ctx.beginPath();
-        this.ctx.arc(0, 0, radius, Math.PI, 0, false);
-        
-        // Wavy bottom
-        for (let i = 0; i < 5; i++) {
-            const waveX = (i - 2) * radius / 2;
-            const waveY = radius * 0.7;
-            if (i % 2 === 0) {
-                this.ctx.lineTo(waveX, waveY);
-            } else {
-                this.ctx.lineTo(waveX, waveY * 0.8);
-            }
-        }
-        this.ctx.closePath();
-        this.ctx.fill();
-        
-        // Eyes
-        this.ctx.fillStyle = '#fff';
-        const eyeOffsetX = radius * 0.3;
-        const eyeOffsetY = -radius * 0.2;
-        const eyeRadius = radius * 0.15;
-        
-        this.ctx.beginPath();
-        this.ctx.arc(-eyeOffsetX, eyeOffsetY, eyeRadius, 0, Math.PI * 2);
-        this.ctx.arc(eyeOffsetX, eyeOffsetY, eyeRadius, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        // Pupils
-        this.ctx.fillStyle = '#000';
-        const pupilOffset = 2;
-        this.ctx.beginPath();
-        this.ctx.arc(-eyeOffsetX + pupilOffset, eyeOffsetY, 2, 0, Math.PI * 2);
-        this.ctx.arc(eyeOffsetX + pupilOffset, eyeOffsetY, 2, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        this.ctx.restore();
-    }
-    
-    updateUI() {
-        this.scoreElement.textContent = this.score;
-        this.livesElement.textContent = this.lives;
-        this.levelElement.textContent = this.level;
-        this.finalScoreElement.textContent = this.score;
-    }
-    
-    gameOver() {
-        this.gameRunning = false;
-        this.gameOverText.textContent = `Game Over! Level ${this.level}`;
-        this.gameOverElement.style.display = 'block';
-    }
-    
-    showInstructions() {
-        setTimeout(() => {
-            this.instructionsElement.style.display = 'block';
-        }, 500);
-    }
-    
-    start() {
-        this.gameRunning = true;
-        this.instructionsElement.style.display = 'none';
-        this.gameLoop();
-    }
-    
-    gameLoop() {
-        if (!this.gameRunning) return;
-        
-        this.updatePacman();
-        this.ghosts.forEach(ghost => this.updateGhost(ghost));
-        this.updateGameMode();
-        this.updateUI();
-        
-        this.draw();
-        
-        requestAnimationFrame(() => this.gameLoop());
-    }
-    
-    draw() {
-        this.drawMaze();
-        this.drawPacman();
-        this.ghosts.forEach(ghost => this.drawGhost(ghost));
-    }
-}
+/* Minimal responsive Pac-like starter
+   - Virtual grid with scaling to fit viewport
+   - Basic movement with collisions
+   - Touch and keyboard controls
+*/
 
-// Start the game when page loads
-window.addEventListener('load', () => {
-    const game = new PacManGame();
-    
-    // Auto-start after short delay (for mobile)
-    setTimeout(() => {
-        game.start();
-    }, 1000);
-    
-    // Also start when instructions are closed
-    document.querySelector('.close-btn').addEventListener('click', () => {
-        game.start();
+(() => {
+  const canvas = document.getElementById('game-canvas');
+  const ctx = canvas.getContext('2d');
+
+  // Virtual grid size (tiles)
+  const COLS = 19;
+  const ROWS = 21;
+  const TILE = 16; // virtual tile px
+  const VIRTUAL_W = COLS * TILE;
+  const VIRTUAL_H = ROWS * TILE;
+
+  // Simple map: 0 = empty, 1 = wall, 2 = pellet
+  // For brevity: generate a frame of walls and pellets for interior
+  const map = new Array(ROWS).fill(0).map((_, r) => {
+    return new Array(COLS).fill(2).map((_, c) => {
+      if (r === 0 || r === ROWS-1 || c === 0 || c === COLS-1) return 1;
+      if ((r % 4 === 0) && (c % 4 === 0)) return 1;
+      return 2;
     });
-    
-    // Global access for restart button
-    window.game = game;
-});
+  });
+
+  // Player state
+  const player = {
+    x: TILE * 1.5,
+    y: TILE * 1.5,
+    radius: TILE * 0.45,
+    dir: null,           // 'up','down','left','right'
+    nextDir: null,
+    speed: 80,           // virtual pixels per second
+  };
+
+  // Resize and scaling
+  function resizeCanvas() {
+    // compute scale so game fits while preserving aspect ratio
+    const scale = Math.min(window.innerWidth / VIRTUAL_W, window.innerHeight / VIRTUAL_H);
+    const displayW = Math.floor(VIRTUAL_W * scale);
+    const displayH = Math.floor(VIRTUAL_H * scale);
+
+    // use devicePixelRatio for crisp rendering
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    canvas.style.width = displayW + 'px';
+    canvas.style.height = displayH + 'px';
+    canvas.width = Math.floor(displayW * dpr);
+    canvas.height = Math.floor(displayH * dpr);
+
+    ctx.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0); // scale drawing to virtual coords
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  // Input
+  const keys = {};
+  window.addEventListener('keydown', e => {
+    const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
+    if (mapKey) { keys[mapKey] = true; e.preventDefault(); }
+  });
+  window.addEventListener('keyup', e => {
+    const mapKey = {ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', a:'left', s:'down', d:'right'}[e.key];
+    if (mapKey) keys[mapKey] = false;
+  });
+
+  // Touch controls (on-screen buttons)
+  document.querySelectorAll('#touch-controls .dir').forEach(btn => {
+    const dir = btn.dataset.dir;
+    btn.addEventListener('touchstart', e => { keys[dir] = true; e.preventDefault(); });
+    btn.addEventListener('touchend', e => { keys[dir] = false; e.preventDefault(); });
+    btn.addEventListener('mousedown', e => { keys[dir] = true; e.preventDefault(); });
+    btn.addEventListener('mouseup', e => { keys[dir] = false; e.preventDefault(); });
+  });
+
+  // Swipe support (simple)
+  (function addSwipe(el = document.body) {
+    let sx=0, sy=0, threshold=20;
+    el.addEventListener('touchstart', e=>{ const t=e.changedTouches[0]; sx=t.clientX; sy=t.clientY; }, {passive:true});
+    el.addEventListener('touchend', e=>{
+      const t=e.changedTouches[0]; const dx=t.clientX - sx; const dy=t.clientY - sy;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > threshold) {
+        keys.left = dx<0; keys.right = dx>0;
+        setTimeout(()=>{ keys.left = keys.right = false; }, 120);
+      } else if (Math.abs(dy) > threshold) {
+        keys.up = dy<0; keys.down = dy>0;
+        setTimeout(()=>{ keys.up = keys.down = false; }, 120);
+      }
+    }, {passive:true});
+  })();
+
+  // Utility: check tile at (col,row)
+  function tileAtColRow(col,row){ return (row<0||row>=ROWS||col<0||col>=COLS) ? 1 : map[row][col]; }
+
+  // Collision test for proposed position (circle vs grid walls)
+  function collides(x,y,r) {
+    const left = Math.floor((x - r) / TILE);
+    const right = Math.floor((x + r) / TILE);
+    const top = Math.floor((y - r) / TILE);
+    const bottom = Math.floor((y + r) / TILE);
+    for (let rr=top; rr<=bottom; rr++){
+      for (let cc=left; cc<=right; cc++){
+        if (tileAtColRow(cc,rr) === 1) return true;
+      }
+    }
+    return false;
+  }
+
+  // Game loop
+  let last = performance.now();
+  function step(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    update(dt);
+    render();
+    requestAnimationFrame(step);
+  }
+
+  // Update player movement
+  function update(dt) {
+    // Resolve desired direction from keys
+    const desire = keys.up ? 'up' : keys.down ? 'down' : keys.left ? 'left' : keys.right ? 'right' : null;
+    if (desire) player.nextDir = desire;
+    // apply nextDir if possible (snap to grid)
+    if (player.nextDir) {
+      const dir = player.nextDir;
+      const vx = dir === 'left' ? -1 : dir === 'right' ? 1 : 0;
+      const vy = dir === 'up' ? -1 : dir === 'down' ? 1 : 0;
+      const speed = player.speed;
+      const nx = player.x + vx * speed * dt;
+      const ny = player.y + vy * speed * dt;
+      if (!collides(nx, ny, player.radius - 1)) {
+        player.dir = player.nextDir;
+        player.nextDir = null;
+      }
+    }
+
+    // Move according to current dir
+    if (player.dir) {
+      const vx = player.dir === 'left' ? -1 : player.dir === 'right' ? 1 : 0;
+      const vy = player.dir === 'up' ? -1 : player.dir === 'down' ? 1 : 0;
+      const nx = player.x + vx * player.speed * dt;
+      const ny = player.y + vy * player.speed * dt;
+      if (!collides(nx, ny, player.radius - 1)) {
+        player.x = nx; player.y = ny;
+      } else {
+        // stop if colliding
+        player.dir = null;
+      }
+    }
+
+    // Eat pellets if present
+    const col = Math.floor(player.x / TILE);
+    const row = Math.floor(player.y / TILE);
+    if (map[row] && map[row][col] === 2) map[row][col] = 0;
+  }
+
+  // Render
+  function render() {
+    ctx.clearRect(0,0,VIRTUAL_W, VIRTUAL_H);
+
+    // Background
+    ctx.fillStyle = '#05102b';
+    ctx.fillRect(0,0,VIRTUAL_W, VIRTUAL_H);
+
+    // Draw map
+    for (let r=0; r<ROWS; r++){
+      for (let c=0; c<COLS; c++){
+        const t = map[r][c];
+        const x = c * TILE;
+        const y = r * TILE;
+        if (t === 1) {
+          ctx.fillStyle = '#003366';
+          roundRect(ctx, x+1, y+1, TILE-2, TILE-2, 3);
+          ctx.fill();
+        } else if (t === 2) {
+          ctx.fillStyle = '#ffd966';
+          const cx = x + TILE/2, cy = y + TILE/2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, Math.max(1, TILE*0.12), 0, Math.PI*2);
+          ctx.fill();
+        }
+      }
+    }
+
+    // Draw player (simple circle with mouth)
+    ctx.save();
+    ctx.translate(player.x, player.y);
+    ctx.fillStyle = '#ffcc00';
+    // simple chomping animation based on time
+    const t = performance.now() / 200;
+    const mouth = Math.abs(Math.sin(t)) * 0.3 + 0.05;
+    let ang = 0;
+    if (player.dir === 'left') ang = Math.PI;
+    else if (player.dir === 'up') ang = -Math.PI/2;
+    else if (player.dir === 'down') ang = Math.PI/2;
+    const start = mouth * Math.PI + ang;
+    const end = (2 - mouth) * Math.PI + ang;
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.arc(0,0, player.radius, start, end, false);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // util: rounded rect
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  // Controls for start button
+  document.getElementById('start-btn').addEventListener('click', ()=> {
+    player.x = TILE*1.5; player.y = TILE*1.5; player.dir = null;
+    last = performance.now();
+    requestAnimationFrame(step);
+    document.getElementById('status').textContent = 'Playing';
+  });
+
+  // Start automatically
+  document.getElementById('start-btn').click();
+})();
